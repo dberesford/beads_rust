@@ -3829,7 +3829,7 @@ Use these assertions to validate parity with `bd` (classic, non-Gastown). Each i
 - **Close semantics**: cannot close with open blockers unless forced; sets `closed_at`, `close_reason`, `closed_by_session`.
 - **Import collision rules**: external_ref priority, tombstone protection, timestamp-aware protection.
 - **JSONL format**: one issue per line (json.Encoder adds a newline per record); skip ephemeral; include tombstones.
-- **Auto-import**: hash-based staleness check; conflict marker abort; skip when `--no-auto-import` set.
+- **Auto-import**: mtime-based staleness check + hash-based import trigger; conflict marker abort; skip when `--no-auto-import` set.
 - **Auto-flush**: debounced, atomic write, final flush on exit unless sync says otherwise.
 - **Config precedence**: flags > env > project config > user config > defaults; yaml-only keys honored.
 - **Routing**: routes.jsonl + redirect behavior for cross-repo IDs; external refs derived from routes.
@@ -6523,6 +6523,8 @@ PR readiness checklist for the **Go** beads repo (tests, lint, nix hash).
 This matrix captures **non-classic** commands and their flags so the Rust port can
 explicitly exclude (or later opt-in) with eyes open. Where a command is partially
 retained (e.g., `sync`), the exclusion note clarifies the supported subset.
+Global flags (e.g., `--json`, `--no-daemon`, `--allow-stale`) are **not** repeated
+unless the command defines its own dedicated flag.
 
 #### 15.82.1 Daemon + Daemon Management (Excluded)
 
@@ -6543,6 +6545,7 @@ retained (e.g., `sync`), the exclusion note clarifies the supported subset.
 
 | Command | Flags | Exclusion Note |
 |---|---|---|
+| `init` | `--prefix`, `--quiet`, `--branch`, `--backend`, `--contributor`, `--team`, `--stealth`, `--setup-exclude`, `--skip-hooks`, `--skip-merge-driver`, `--force`, `--from-jsonl` | `br` keeps minimal init (prefix + sqlite); hook/merge-driver setup excluded |
 | `sync` | `--message`, `--dry-run`, `--no-push`, `--no-pull`, `--rename-on-import`, `--flush-only`, `--import-only`, `--status`, `--merge`, `--from-main`, `--no-git-history`, `--squash`, `--check`, `--accept-rebase`, `--json` | `br` keeps only `--flush-only` / `--import-only` (no git ops) |
 | `merge` | `--debug` | Merge-driver helper excluded |
 | `resolve-conflicts` | `--mode`, `--dry-run`, `--json`, `--path` | Excluded |
@@ -6563,6 +6566,11 @@ retained (e.g., `sync`), the exclusion note clarifies the supported subset.
 | `admin` | (none) | Group for maintenance aliases |
 | `cleanup` | `--force`, `--dry-run`, `--cascade`, `--older-than`, `--hard`, `--ephemeral` | Excluded |
 | `compact` | `--dry-run`, `--tier`, `--all`, `--id`, `--force`, `--batch-size`, `--workers`, `--stats`, `--json`, `--analyze`, `--apply`, `--auto`, `--prune`, `--older-than`, `--purge-tombstones`, `--summary`, `--actor`, `--limit` | Excluded |
+| `migrate` | `--yes`, `--cleanup`, `--dry-run`, `--update-repo-id`, `--inspect`, `--json` | Excluded |
+| `migrate hash-ids` | `--dry-run` | Excluded |
+| `migrate issues` | `--from`, `--to`, `--status`, `--priority`, `--type`, `--label`, `--id`, `--ids-file`, `--include`, `--within-from-only`, `--dry-run`, `--strict`, `--yes` | Excluded |
+| `migrate sync` | `--dry-run`, `--force` | Excluded |
+| `migrate tombstones` | `--dry-run`, `--verbose`, `--json` | Excluded |
 | `doctor` | `--fix`, `--yes`, `--interactive`, `--dry-run`, `--fix-child-parent`, `--verbose`, `--force`, `--source`, `--perf`, `--check-health`, `--output`, `--check`, `--clean`, `--deep` | Excluded |
 | `repair` | `--dry-run`, `--path`, `--json` | Excluded |
 | `detect-pollution` | `--clean`, `--yes` | Excluded |
