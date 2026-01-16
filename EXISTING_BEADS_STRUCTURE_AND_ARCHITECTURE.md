@@ -72,28 +72,35 @@ Update it as soon as new work is discovered or completed.
   - [x] Capture rename-prefix behavior + repair mode + JSONL sync step.
   - [x] Capture routing resolution + redirects + missing route behavior.
 
-### Open TODOs (keep granular + current)
+### Working TODO (Detailed + Current)
 
-- [ ] **Reconcile doc vs issue tracker**:
-  - [ ] Verify whether previously marked “completed” items are fully covered and close any redundant beads issues.
-  - [ ] If gaps remain, link them to a bead ID and leave explicit sub-tasks here.
-- [ ] **Sync + merge driver integration** (beads_rust-f0g):
-  - [ ] Confirm merge-driver install in `bd init` (git config + `.gitattributes` edits).
-  - [ ] Document `resolve-conflicts` backup/cleanup behavior in detail.
-  - [ ] Capture sync-branch mass-delete thresholds + config keys.
-- [ ] **Hierarchy + templates + epics validation** (beads_rust-hwb):
-  - [ ] Re-verify epic status/close JSON shapes against tests.
-  - [ ] Confirm template semantics in hierarchy (epic+label conventions).
-- [ ] **Integrations/automation JSON shapes** (beads_rust-17u):
-  - [ ] Hooks install/uninstall/list outputs.
-  - [ ] Daemon status/health JSON shapes (if still present in legacy).
-  - [ ] Gate/mol/agent/swarm outputs (for exclusion clarity).
-  - [ ] Linear/Jira sync outputs (excluded but documented).
-- [ ] **Create-form interactive workflow** (beads_rust-yfq):
-  - [ ] Capture prompt order, defaults, and JSON output (if any).
-- [ ] **Merge-driver scope decision for br** (beads_rust-o27):
-  - [ ] Decide opt‑out vs keep (if no git ops).
-  - [ ] If keep: expand merge schema to full issue model to avoid data loss.
+#### Completed (this pass)
+
+- [x] **Sync + merge driver integration** (beads_rust-f0g):
+  - [x] Merge-driver install wiring in `bd init` (git config + `.gitattributes` updates).
+  - [x] `resolve-conflicts` behavior + backup/JSON output documented.
+  - [x] Sync-branch mass-delete safety threshold + config key documented.
+- [x] **Hierarchy + templates + epics validation** (beads_rust-hwb):
+  - [x] Epic `status` / `close-eligible` JSON shapes (including dry-run and empty cases).
+  - [x] Template semantics: `is_template` persistence + update/close guards.
+- [x] **Integrations/automation JSON shapes** (beads_rust-17u):
+  - [x] Hooks install/uninstall/list JSON outputs (fields, casing).
+  - [x] Daemon status JSON shapes (current workspace + `--all` aggregate).
+  - [x] Gate/agent/swarm JSON outputs (list/show/check/status/create).
+  - [x] Linear/Jira sync + status outputs.
+  - [x] Mail delegation behavior (no JSON, passthrough).
+- [x] **Create-form interactive workflow** (beads_rust-yfq):
+  - [x] Field order + grouping + character limits + validation.
+  - [x] Parse rules for labels/deps + priority default behavior.
+  - [x] Cancellation behavior + theme.
+  - [x] Output path (daemon RPC vs direct, JSON vs text + flush scheduling).
+- [x] **Merge-driver scope decision for br** (beads_rust-o27):
+  - [x] v1 default: **opt out** of merge-driver install (no git ops).
+  - [x] If optional merge is kept, require full-field schema to avoid data loss.
+
+#### Remaining (next pass)
+
+- [x] No open items after this pass. Add new items here when gaps are discovered.
 
 ---
 
@@ -5792,6 +5799,17 @@ resurrect tombstones.
 - Merge driver schema is a **subset** of full issue fields. Any unknown JSON fields
   (labels/comments/assignee/design/etc) are **dropped** on output.
 
+**Install + repair wiring**:
+- `bd init` installs the merge driver **by default** when inside a git repo:
+  - `git config merge.beads.driver "bd merge %A %O %A %B"`
+  - `git config merge.beads.name "bd JSONL merge driver"`
+  - `.gitattributes` gets: `.beads/issues.jsonl merge=beads`
+- Legacy filename `.beads/beads.jsonl` is treated as valid when checking for install.
+- If `.gitattributes` exists, the entry is **appended** (preserving prior content and newline).
+- `--skip-merge-driver` or `--stealth` skips installation; non‑git repos skip silently.
+- Stale configs using **invalid placeholders** (`%L/%R`) are treated as broken and re‑installed.
+- `bd doctor --fix` can repair merge driver config; `bd reset` can remove it.
+
 **Note**: Not for duplicate issues (use `bd duplicates`).
 
 **Cleanup**:
@@ -5810,7 +5828,11 @@ resurrect tombstones.
 - Parses conflict markers `<<<<<<<`, `=======`, `>>>>>>>` in JSONL.
 - Mode `mechanical` (default): deterministic merge rules.
 - Mode `interactive`: not implemented.
+- Default file: `.beads/beads.jsonl` (legacy filename), unless a file arg is provided.
+- `--path` sets repo root used to find `.beads` when no file arg is given.
 - Writes resolved file and creates backup: `<file>.pre-resolve`.
+- `--dry-run` shows intended resolutions without writing.
+- `--json` emits a structured result (see below).
 
 **Resolution rules** (mechanical):
 - If both sides unparseable: keep both.
@@ -5843,6 +5865,12 @@ resurrect tombstones.
   ]
 }
 ```
+
+**Status values**:
+- `success`, `dry_run`, `no_conflicts`, `error`.
+
+**Resolution labels** (examples):
+- `kept_both_unparseable`, `left_only_valid`, `right_only_valid`, `merged`, `merged_multiple`.
 
 #### 15.59.3 repair
 
@@ -6182,8 +6210,10 @@ Key points:
 **Mass deletion safety (sync-branch only)**:
 - After a **divergent merge**, if **>50% issues vanish** and **>5 existed**,
   warnings are attached to the result.
-- If `sync.require_confirmation_on_mass_delete=true`, auto-push is **skipped**
-  until confirmation; otherwise it pushes with warnings.
+- “Vanished” means **removed from JSONL entirely**, not merely `status=closed`.
+- If `sync.require_confirmation_on_mass_delete=true`, auto‑push is **skipped** and
+  the caller is expected to prompt then call `PushSyncBranch` (manual confirmation flow).
+- If the flag is **false**, push proceeds with warnings and a recovery hint (`git reflog`).
 
 #### 15.68.3 Redirect + sync-branch incompatibility
 
@@ -7289,10 +7319,19 @@ Large health check + auto‑fix framework:
 
 **JSON output**:
 - `epic status` → array of `EpicStatus` objects.
-- `epic close-eligible` → `{ "closed": ["bd-..."], "count": N }` (or `[]` in dry‑run).
+- `epic close-eligible`:
+  - **dry-run**: array of `EpicStatus` (same shape as `epic status`).
+  - **no eligible epics**: prints `[]` in JSON mode.
+  - **normal run**: `{ "closed": ["bd-..."], "count": N }`.
 
 **Port note**:
 - Optional to keep in `br`; easy to re‑implement on top of dependency graph.
+
+**Template semantics (classic)**:
+- `is_template=true` marks read‑only template issues.
+- `bd show --json` **includes** `is_template: true` for templates (test‑verified).
+- `bd update` / `bd close` **reject** templates with explicit errors (tests assert
+  “cannot update template” and “cannot close template”).
 
 ---
 
@@ -7305,7 +7344,8 @@ compatibility tests and future parity decisions.
 
 - `hooks install` → `{ "success": true, "message": "...", "shared": bool, "chained": bool }`
 - `hooks uninstall` → `{ "success": true, "message": "..." }`
-- `hooks list` → `{ "hooks": [ { "name": "...", "installed": true, "version": "...", "is_shim": false, "outdated": false } ] }`
+- `hooks list` → `{ "hooks": [ { "Name": "...", "Installed": true, "Version": "...", "IsShim": false, "Outdated": false } ] }`
+  - Note: keys are **capitalized** due to missing JSON tags on `HookStatus`.
 
 #### 15.87.2 Daemon / Daemons
 
@@ -7315,11 +7355,19 @@ compatibility tests and future parity decisions.
   "workspace": "/abs/repo",
   "pid": 12345,
   "version": "0.47.2",
-  "status": "healthy|outdated|not_running",
+  "status": "running|outdated|not_running",
+  "issue": "daemon 0.47.1 != cli 0.47.2",
+  "started": "RFC3339",
   "uptime_seconds": 123.4,
   "auto_commit": true,
   "auto_push": true,
-  "auto_pull": false
+  "auto_pull": false,
+  "local_mode": false,
+  "sync_interval": "5s",
+  "daemon_mode": "direct|sync-branch|local",
+  "log_path": ".beads/daemon.log",
+  "version_mismatch": true,
+  "is_current": true
 }
 ```
 
@@ -7328,41 +7376,54 @@ compatibility tests and future parity decisions.
 { "total": 2, "healthy": 1, "outdated": 1, "stale": 0, "unresponsive": 0, "daemons": [ ... ] }
 ```
 
-**Daemons list**: array of `DaemonInfo` (workspace, pid, version, uptime, last_activity, lock).
-**Stop**: `{ "workspace": "...", "pid": 123, "stopped": true }`
-**Restart**: `{ "workspace": "...", "action": "restarted" }`
-**Logs**: `{ "workspace": "...", "log_path": "...", "content": "..." }`
-**Health**: `{ "total": N, "healthy": X, "stale": Y, "mismatched": Z, "daemons": [ ... ] }`
+**Status enums**:
+- Current workspace: `running`, `outdated`, `not_running`.
+- All‑daemons view: `healthy`, `outdated`, `stale`, `unresponsive` (per report).
 
 #### 15.87.3 Gate
 
 - `gate list` → array of Issue objects (type `gate`).
 - `gate show` → single Issue.
 - `gate check` → `{ "checked": N, "resolved": X, "escalated": Y, "errors": Z, "dry_run": bool }`
+- `gate resolve` → **no JSON output** (prints text only).
 
 #### 15.87.4 Agent
 
 - `agent state` → `{ "agent": "gt-xyz", "agent_state": "running", "last_activity": "RFC3339" }`
 - `agent heartbeat` → `{ "agent": "gt-xyz", "last_activity": "RFC3339" }`
 - `agent show` → `{ "id": "...", "title": "...", "agent_state": "...", "last_activity": "...", "hook_bead": "...", "role_bead": "...", "role_type": "...", "rig": "..." }`
+- `agent backfill-labels` → **no JSON output** (text only, even in dry-run).
 
 #### 15.87.5 Swarm / Mol / Formula / Wisp / Pour
 
-These are **Gastown‑only** surfaces. They emit JSON objects that mirror internal
-`types.Molecule`, `types.Formula`, or batch operation results. Examples:
-- `mol show` → `{ "molecule": {...}, "issues": [...], "dependencies": [...] }`
-- `mol stale` → `{ "total": N, "stale": [...], "blocking": [...] }`
-- `mol squash` → `{ "deleted": [...], "kept": [...], "summary": "..." }`
-- `swarm status` → `{ "epic_id": "...", "phase": "...", "agents": [...] }`
+These are **Gastown‑only** surfaces; JSON shapes are still documented for parity notes.
+
+**Swarm**:
+- `swarm validate` → `SwarmAnalysis`:
+  - `{ "epic_id", "epic_title", "total_issues", "closed_issues", "ready_fronts", "max_parallelism", "estimated_sessions", "warnings", "errors", "swarmable", "issues"? }`
+- `swarm status` → `SwarmStatus`:
+  - `{ "epic_id", "epic_title", "total_issues", "completed", "active", "ready", "blocked", "progress_percent", "active_count", "ready_count", "blocked_count" }`
+- `swarm create` → `{ "swarm_id", "epic_id", "coordinator", "analysis" }` (or `{ "error": "...", "analysis": ... }`).
+- `swarm list` → `{ "swarms": [ { "id", "title", "epic_id", "epic_title", "status", "coordinator", "total_issues", "completed_issues", "active_issues", "progress_percent" } ] }`
+
+**Mol / formula / wisp / pour**:
+- Emit JSON maps shaped around `types.Molecule` or batch results. Keep **excluded** for `br` v1.
 
 #### 15.87.6 Linear / Jira
 
-- `linear sync` and `jira sync` emit `SyncResult` objects:
+- `linear sync` / `jira sync` emit `SyncResult`:
 ```json
-{ "success": true, "created": 3, "updated": 2, "warnings": ["..."], "error": "" }
+{
+  "success": true,
+  "stats": { "pulled": 1, "pushed": 1, "created": 1, "updated": 0, "skipped": 0, "errors": 0, "conflicts": 0 },
+  "last_sync": "RFC3339",
+  "error": "",
+  "warnings": ["..."]
+}
 ```
-- `linear status` / `jira status` emit config + counts (external_ref, pending push).
-- `linear teams` returns array of team objects (`id`, `name`, etc.).
+- `linear status` / `jira status` emit config + counts:
+  - `{ "configured": bool, "last_sync": "...", "total_issues": N, "with_*_ref": M, "pending_push": K, ... }`
+- `linear teams` returns array of team objects (`id`, `key`, `name`, etc.).
 
 #### 15.87.7 Mail Delegation
 
@@ -7430,6 +7491,39 @@ Goal: automated parity testing for **classic** commands in JSON mode.
 `bd create-form` launches a TUI (via `charmbracelet/huh`) to gather fields:
 title, description, type, priority, assignee, labels, design, acceptance,
 external_ref, deps. It then calls the same create path as `bd create`.
+
+**Field order + validation**:
+- Title input (required, max 500 chars) with placeholder and inline validation.
+- Description textarea (optional, 5000 char limit).
+- Type select: task/bug/feature/epic/chore.
+- Priority select: P0..P4 (values `0..4`).
+- Assignee input (optional).
+- Labels input (comma-separated, optional).
+- External reference input (optional).
+- Design notes textarea (optional, 5000 char limit).
+- Acceptance criteria textarea (optional, 5000 char limit).
+- Dependencies input (comma-separated `type:id` or `id`).
+- Final confirm (“Create” / “Cancel”).
+
+**Parse + create behavior**:
+- Labels/dependencies are split on commas, trimmed, empty items dropped.
+- Dependency parsing accepts `type:id` (validated) or bare `id` (defaults to `blocks`).
+  Invalid type or format is **warned** to stderr and skipped.
+- Priority parse failures default to **2** (medium).
+- If any dependency is `discovered-from:<parent>`, the new issue inherits
+  `source_repo` from the parent when available.
+- Uses `getActorWithGit()` to populate `created_by` (matches `bd create`).
+
+**UI / UX**:
+- Dracula theme.
+- Aborting the form prints `Issue creation canceled.` to stderr and exits `0`.
+
+**Output**:
+- If daemon is running, `create-form` uses RPC; otherwise it calls the direct
+  create path.
+- JSON mode prints the created issue object (same as `create --json`).
+- Text mode prints the standard “Created issue” summary.
+- Schedules auto‑flush after successful create.
 
 **Port note**:
 - Optional in `br` v1. If omitted, document as unsupported.
