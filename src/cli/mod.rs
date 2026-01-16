@@ -7,6 +7,8 @@ pub mod commands;
 use anyhow::Result;
 use clap::{Args, Parser, Subcommand};
 
+use crate::logging;
+
 /// `beads_rust` (br) - Agent-first issue tracker.
 #[derive(Parser, Debug)]
 #[command(name = "br")]
@@ -238,6 +240,8 @@ pub enum ConfigSubcommand {
 /// Returns an error if the command fails to execute.
 pub fn run() -> Result<()> {
     let cli = Cli::parse();
+    logging::init_logging(cli.verbose, cli.quiet, None)
+        .map_err(|e| anyhow::anyhow!("Failed to initialize logging: {e}"))?;
 
     match cli.command {
         Some(Commands::Version) => {

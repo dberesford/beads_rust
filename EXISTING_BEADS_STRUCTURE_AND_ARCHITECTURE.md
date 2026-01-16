@@ -71,6 +71,25 @@ Update it as soon as new work is discovered or completed.
   - [x] Capture prefix validation + trailing hyphen normalization.
   - [x] Capture rename-prefix behavior + repair mode + JSONL sync step.
   - [x] Capture routing resolution + redirects + missing route behavior.
+- [x] Expand **JSONL field-level compatibility** (export/import rules per field).
+  - [x] Document field inclusion/omission rules (`json:"-"`, `omitempty`).
+  - [x] Document auto-flush vs manual export differences (comments/labels).
+  - [x] Document defaults applied during import (`SetDefaults`) and hash recompute.
+- [x] Expand **last-touched mechanics** (storage file, update triggers, gitignore check).
+  - [x] Document read/write semantics + permissions.
+  - [x] Document which commands set last-touched and which don’t.
+- [x] Expand **audit/event model** (event types, insertion rules, query ordering).
+  - [x] Document event schema and event_type mapping.
+  - [x] Document event creation points (create/update/close/reopen/dep/label/comment).
+  - [x] Document event retrieval ordering and non-export behavior.
+- [x] Expand **validation rules** (create/update/import).
+  - [x] Document Issue.Validate vs ValidateForImport differences.
+  - [x] Document field-level validators (status/type/title/priority/estimate).
+  - [x] Document label normalization and issue type aliasing.
+- [x] Expand **performance hot paths** (ready cache, list/search bulk ops, import/export).
+  - [x] Document blocked_issues_cache design and triggers.
+  - [x] Document list/search bulk lookup patterns (labels/dep counts).
+  - [x] Document JSONL export/auto-flush optimizations (dirty_issues, buffered scanner).
 
 ### Working TODO (Detailed + Current)
 
@@ -7079,6 +7098,9 @@ This section synthesizes **actual import/export correctness rules** from
 **Error policies** (configurable via DB config keys):
 - `export.error_policy`: `strict` (default), `best-effort`, `partial`, `required-core`.
 - `auto_export.error_policy`: defaults to `best-effort` for auto-flush.
+
+**Port note (br)**:
+- External refs: **skip Linear canonicalization** (integration excluded); treat `external_ref` as opaque.
 - `export.retry_attempts` (default 3), `export.retry_backoff_ms` (default 100).
 - `export.skip_encoding_errors` (default false).
 - `export.write_manifest` (default false).
@@ -7644,6 +7666,230 @@ compatibility and avoid subtle sync bugs.
 **Port note**:
 - `br` may exclude `rename-prefix` in v1; if included, it must **omit**
   git‑sync steps (pull/sync‑branch) and require explicit user confirmation.
+
+---
+
+### 15.94 JSONL Field‑Level Compatibility (Import/Export)
+
+**Baseline JSONL shape**:
+- Each line is a **single Issue JSON object** (one per line).
+- Field names follow `types.Issue` json tags (snake_case).
+- `omitempty` fields are omitted when empty.
+- Unknown/extra fields are ignored on import (Go JSON default behavior).
+
+**Fields explicitly NOT exported (json:"-")**:
+- `content_hash`
+- `source_repo`, `id_prefix`, `prefix_override`
+- Any internal routing or transient fields not in JSON tags
+
+**Fields exported when present**:
+- Core: `id`, `title`, `description`, `design`, `acceptance_criteria`, `notes`,
+  `status`, `priority`, `issue_type`, `assignee`, `estimated_minutes`,
+  `created_at`, `created_by`, `updated_at`, `closed_at`, `close_reason`,
+  `closed_by_session`, `external_ref`, `due_at`, `defer_until`.
+- Tombstone: `deleted_at`, `deleted_by`, `delete_reason`, `original_type` (for tombstones).
+- Relations:
+  - `dependencies`: array of `{issue_id, depends_on_id, type, created_at, created_by, metadata, thread_id}`
+  - `labels`: array of strings
+  - `comments`: array of `{id, issue_id, author, text, created_at}`
+
+**Gastown‑only fields (legacy)**:
+- Legacy Issue JSON may contain fields for **agents, gates, molecules, rigs, HOP/convoy**.
+- `br` v1 should **ignore** these fields on import and **not** emit them on export.
+- If strict parity is required for a future gastown‑aware build, these fields
+  must be preserved as opaque data in a dedicated extension payload.
+
+**Export variants (important difference)**:
+- **Manual `bd export`**:
+  - Populates **dependencies** and **labels** for each issue.
+  - Does **not** load comments, so `comments` is typically **absent** in exported JSONL.
+- **Auto‑flush export**:
+  - Merges dirty issues into existing JSONL.
+  - Fetches dependencies and **comments** per issue.
+  - Labels are included because `GetIssue` already populates them.
+- Result: comments can be missing in manual exports but present in auto‑flush.
+**Port note (br)**:
+- Prefer **consistent export** (include comments/labels/deps in all JSONL exports),
+  unless strict legacy parity is explicitly required.
+
+**Wisps / ephemerals**:
+- Any issue with `ephemeral=true` or ID containing `-wisp-` is **never exported** to JSONL.
+- Import auto‑detects `-wisp-` IDs and sets `ephemeral=true` to prevent ready pollution.
+
+**Defaults applied on import**:
+- `SetDefaults()` sets `status=open` when empty.
+- `issue_type` defaults to `task` if empty.
+- `priority` is **not** defaulted (P0 is valid, priority is always present in JSONL).
+- `content_hash` is recomputed on import; any JSONL value is ignored.
+
+**Closed/tombstone invariants**:
+- Import validates:
+  - `status=closed` ⇒ `closed_at` non‑null
+  - `status!=closed` ⇒ `closed_at` null (except tombstone)
+  - `status=tombstone` ⇒ `deleted_at` non‑null
+- `manageClosedAt` honors explicit `closed_at` in import updates to preserve timestamps.
+
+**External refs**:
+- `external_ref` is preserved as provided.
+- Linear external refs are normalized to canonical form on import (legacy behavior).
+**Port note (br)**:
+- Skip Linear normalization (integration is excluded); treat `external_ref` as opaque.
+
+**Import ordering**:
+- Issues are created depth‑by‑depth (parents before children).
+- Dependencies/labels/comments imported **after** issues are upserted.
+
+---
+
+### 15.95 Last‑Touched Mechanics
+
+**What it is**:
+- A tiny local state file: `.beads/last-touched`.
+- Stores a single issue ID (one line, newline‑terminated).
+- Used when commands omit an ID (e.g., `bd update`, `bd close`).
+
+**Read/write behavior**:
+- `GetLastTouchedID()` reads and trims the file; returns empty on failure.
+- `SetLastTouchedID(id)` is **best‑effort** (silently ignores failures).
+- File permissions: **0600** (local, non‑shared).
+- `ClearLastTouched()` removes the file (best‑effort; not commonly called).
+
+**Which commands set it**:
+- `create` → sets to the newly created issue.
+- `update` → sets to the **first updated** ID.
+- `show` → sets to the **first shown** ID (or routed ID when routed).
+- `close` does **not** update last‑touched.
+
+**Git hygiene**:
+- `bd doctor` checks that `.beads/last-touched` is **not tracked** by git.
+**Port note (br)**:
+- Warn only; do **not** modify git state or untrack files automatically.
+
+---
+
+### 15.96 Audit / Events Model
+
+**Schema**:
+`events` table fields: `id`, `issue_id`, `event_type`, `actor`,
+`old_value`, `new_value`, `comment`, `created_at`.
+
+**Event types (core)**:
+`created`, `updated`, `status_changed`, `closed`, `reopened`,
+`commented`, `dependency_added`, `dependency_removed`,
+`label_added`, `label_removed`, `compacted`.
+
+**Creation points**:
+- **Create**: inserts `created` event with actor.
+- **Update**:
+  - `status` change:
+    - to `closed` ⇒ `closed`
+    - from `closed` ⇒ `reopened`
+    - other status change ⇒ `status_changed`
+  - other field change ⇒ `updated`
+  - `old_value` = full issue JSON; `new_value` = update map JSON.
+- **Comments**: inserts `commented` event with `comment` text.
+- **Dependencies**:
+  - Add ⇒ `dependency_added` with comment `Added dependency: <from> <type> <to>`
+  - Remove ⇒ `dependency_removed` with comment `Removed dependency on <to>`
+- **Labels**:
+  - Add ⇒ `label_added`
+  - Remove ⇒ `label_removed`
+- **Tombstones**: deletion inserts a tombstone event (used for audit).
+
+**Retrieval**:
+- `GetEvents(issue_id, limit)` returns events ordered **created_at DESC**.
+- Events are **not** exported to JSONL (audit is local‑DB only).
+
+**Porting note**:
+- Keep event insertion in the same transaction as the mutation to preserve audit integrity.
+- Do **not** add event streaming, activity feeds, or daemon‑driven event dispatch in `br` v1.
+
+---
+
+### 15.97 Validation Rules (Create/Update/Import)
+
+**Issue.Validate (create / normal use)**:
+- `title` required, 1–500 chars.
+- `priority` must be 0–4.
+- `status` must be a valid built‑in status (or custom status if allowed).
+- `issue_type` must be built‑in or allowed custom type.
+- `estimated_minutes` must be non‑negative.
+- Enforces `closed_at` / `deleted_at` invariants.
+**Port note (br)**:
+- Treat `hooked` as **invalid** (gastown‑only).
+- Allow `pinned` only if you explicitly keep pinned beads as a classic feature.
+
+**ValidateForImport (federated trust model)**:
+- Same core checks as Validate, but **type validation is relaxed**:
+  - Built‑in types must be valid; unknown types are trusted (child repo validated).
+
+**Update field validation (storage layer)**:
+- Only whitelisted fields can be updated (prevents SQL injection).
+- Field validators include:
+  - `status`: rejects `tombstone` (use `bd delete` instead).
+  - `priority`: 0–4 only.
+  - `title`: 1–500 chars.
+  - `issue_type`: must be valid.
+  - `estimated_minutes`: non‑negative.
+- Custom statuses allowed when configured.
+
+**Label normalization**:
+- Trim whitespace, drop empty labels, de‑dupe, preserve order.
+- No case‑folding; labels are case‑sensitive as stored.
+
+**Issue type aliases**:
+- `mr` → `merge-request`
+- `feat` → `feature`
+- `mol` → `molecule`
+**Port note (br)**:
+- Exclude gastown‑only types and aliases (`mol`, `merge-request`, `gate`, `agent`, `role`, `rig`, `convoy`, `event`, etc.).
+- `br` v1 should accept only classic types (task, bug, feature, epic, chore) unless
+  a compatibility flag is explicitly enabled.
+
+**Pinned / template guards**:
+- Templates are read‑only (updates/close/delete blocked).
+- Pinned issues require `--force` to close/update.
+
+---
+
+### 15.98 Performance Hot Paths & Optimizations
+
+**Ready work (critical path)**:
+- Uses a **materialized blocked_issues_cache** to avoid recursive CTE on every read.
+- Cache rebuilt on:
+  - dependency add/remove (blocking types)
+  - status changes
+  - close operations
+- Read path: `NOT EXISTS (SELECT 1 FROM blocked_issues_cache ...)` → ~25× faster.
+**Port note (br)**:
+- `conditional-blocks` and `waits-for` are gastown‑only; `br` v1 can omit these
+  cache rules and restrict blocking to `blocks` + `parent-child`.
+
+**List/Search (high‑fanout reads)**:
+- DB query returns issues only; related data fetched in **bulk**:
+  - labels: `GetLabelsForIssues` (single query) for JSON outputs
+  - dependency counts: `GetDependencyCounts` (single query)
+- Client‑side sorting avoids additional DB indices for alternate orderings.
+
+**Dependency tree**:
+- Recursive CTE with depth limit (default 50) and cycle‑safe path tracking.
+- Dedupe by ID unless `--show-all-paths` is enabled.
+
+**Import path**:
+- Clears `export_hashes` before import to avoid false staleness.
+- Creates issues in depth order (parents first) to satisfy hierarchy.
+- Imports dependencies/labels/comments **after** issues to avoid FK churn.
+- WAL checkpoint at end to reduce WAL size.
+
+**Export / auto‑flush**:
+- Manual export sorts by ID for deterministic output.
+- Auto‑flush uses `dirty_issues` to export only changed issues.
+- Scanner buffer raised to 2MB for large JSONL lines (avoids silent truncation).
+- Atomic temp‑file rename to avoid partial writes.
+
+**Concurrency safeguards**:
+- SQLite reads guarded by `reconnectMu` to prevent mid‑query close.
+- Writes use IMMEDIATE transactions to acquire reserved locks early.
 
 ---
 
