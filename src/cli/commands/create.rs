@@ -67,7 +67,7 @@ pub fn execute(args: CreateArgs, cli: &config::CliOverrides) -> Result<()> {
     let defer_until = parse_optional_date(args.defer.as_deref())?;
 
     // 5. Construct Issue
-    let issue = Issue {
+    let mut issue = Issue {
         id: id.clone(),
         title,
         description: args.description,
@@ -108,6 +108,9 @@ pub fn execute(args: CreateArgs, cli: &config::CliOverrides) -> Result<()> {
         dependencies: vec![],
         comments: vec![],
     };
+
+    // Compute content hash
+    issue.content_hash = Some(issue.compute_content_hash());
 
     // 5.5 Validate Issue
     IssueValidator::validate(&issue).map_err(BeadsError::from_validation_errors)?;

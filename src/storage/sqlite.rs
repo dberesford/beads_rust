@@ -2,7 +2,7 @@
 
 use crate::error::{BeadsError, Result};
 use crate::format::{IssueDetails, IssueWithDependencyMetadata};
-use crate::model::{Comment, Event, EventType, Issue, IssueType, Priority, Status};
+use crate::model::{Comment, DependencyType, Event, EventType, Issue, IssueType, Priority, Status};
 use crate::storage::events::get_events;
 use crate::storage::schema::apply_schema;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
@@ -1134,6 +1134,15 @@ impl SqliteStorage {
         dep_type: &str,
         actor: &str,
     ) -> Result<bool> {
+        // Check for cycles if this is a blocking dependency
+        if let Ok(dt) = dep_type.parse::<DependencyType>() {
+            if dt.is_blocking() && self.would_create_cycle(issue_id, depends_on_id)? {
+                return Err(BeadsError::CycleDetected {
+                    path: format!("Adding dependency {issue_id} -> {depends_on_id} would create a cycle"),
+                });
+            }
+        }
+
         self.mutate("add_dependency", actor, |tx, ctx| {
             let exists: i64 = tx.query_row(
                 "SELECT count(*) FROM dependencies WHERE issue_id = ? AND depends_on_id = ?",
