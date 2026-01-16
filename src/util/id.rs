@@ -425,9 +425,412 @@ pub fn is_valid_id_format(id: &str) -> bool {
     parse_id(id).is_ok()
 }
 
+// ============================================================================
+// ID Resolution
+// ============================================================================
+
+/// Configuration for ID resolution.
+#[derive(Debug, Clone)]
+pub struct ResolverConfig {
+    /// Default prefix to use when input lacks one.
+    pub default_prefix: String,
+    /// Additional allowed prefixes for matching.
+    pub allowed_prefixes: Vec<String>,
+    /// Whether to allow substring matching on hash portion.
+    pub allow_substring_match: bool,
+}
+
+impl Default for ResolverConfig {
+    fn default() -> Self {
+        Self {
+            default_prefix: "bd".to_string(),
+            allowed_prefixes: Vec::new(),
+            allow_substring_match: true,
+        }
+    }
+}
+
+impl ResolverConfig {
+    /// Create a new resolver config with the given default prefix.
+    #[must_use]
+    pub fn with_prefix(prefix: impl Into<String>) -> Self {
+        Self {
+            default_prefix: prefix.into(),
+            ..Default::default()
+        }
+    }
+}
+
+/// Resolved ID result from the resolution process.
+#[derive(Debug, Clone)]
+pub struct ResolvedId {
+    /// The full resolved ID.
+    pub id: String,
+    /// How the ID was matched.
+    pub match_type: MatchType,
+    /// The original input that was resolved.
+    pub original_input: String,
+}
+
+/// How an ID was matched during resolution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchType {
+    /// Exact match on full ID.
+    Exact,
+    /// Matched after prepending the default prefix.
+    PrefixNormalized,
+    /// Matched via substring on hash portion.
+    Substring,
+}
+
+/// ID resolver that resolves partial IDs to full IDs.
+///
+/// Resolution order:
+/// 1. Exact ID match
+/// 2. Normalize: if missing prefix, prepend `default_prefix-` and retry
+/// 3. Substring match on hash portion across all prefixes
+/// 4. Ambiguity => error with candidate list
+#[derive(Debug, Clone)]
+pub struct IdResolver {
+    config: ResolverConfig,
+}
+
+impl IdResolver {
+    /// Create a new ID resolver with the given config.
+    #[must_use]
+    pub const fn new(config: ResolverConfig) -> Self {
+        Self { config }
+    }
+
+    /// Create a new ID resolver with default config.
+    #[must_use]
+    pub fn with_defaults() -> Self {
+        Self::new(ResolverConfig::default())
+    }
+
+    /// Create a new ID resolver with the given default prefix.
+    #[must_use]
+    pub fn with_prefix(prefix: impl Into<String>) -> Self {
+        Self::new(ResolverConfig::with_prefix(prefix))
+    }
+
+    /// Get the default prefix.
+    #[must_use]
+    pub fn default_prefix(&self) -> &str {
+        &self.config.default_prefix
+    }
+
+    /// Resolve a partial ID to a full ID.
+    ///
+    /// The `lookup_fn` should return all IDs that match the given pattern.
+    /// - For exact match, pass the ID and expect 0 or 1 results.
+    /// - For substring match, pass the pattern and expect 0-N results.
+    ///
+    /// The `exists_fn` should check if an exact ID exists.
+    ///
+    /// # Errors
+    ///
+    /// - `IssueNotFound` if no match is found.
+    /// - `AmbiguousId` if multiple matches are found.
+    ///
+    /// # Panics
+    ///
+    /// This function will not panic under normal operation. The internal
+    /// `.expect()` call is guarded by a length check ensuring exactly one match exists.
+    pub fn resolve<F, G>(
+        &self,
+        input: &str,
+        exists_fn: F,
+        substring_match_fn: G,
+    ) -> Result<ResolvedId>
+    where
+        F: Fn(&str) -> bool,
+        G: Fn(&str) -> Vec<String>,
+    {
+        let input = input.trim();
+
+        if input.is_empty() {
+            return Err(BeadsError::InvalidId { id: String::new() });
+        }
+
+        // Normalize input to lowercase
+        let normalized = normalize_id(input);
+
+        // Step 1: Try exact match
+        if exists_fn(&normalized) {
+            return Ok(ResolvedId {
+                id: normalized,
+                match_type: MatchType::Exact,
+                original_input: input.to_string(),
+            });
+        }
+
+        // Step 2: If no dash (missing prefix), prepend default prefix and retry
+        if !normalized.contains('-') {
+            let with_prefix = format!("{}-{}", self.config.default_prefix, normalized);
+            if exists_fn(&with_prefix) {
+                return Ok(ResolvedId {
+                    id: with_prefix,
+                    match_type: MatchType::PrefixNormalized,
+                    original_input: input.to_string(),
+                });
+            }
+        }
+
+        // Step 3: Substring match on hash portion
+        if self.config.allow_substring_match {
+            // Extract the potential hash portion (after dash, or entire input if no dash)
+            let hash_pattern = normalized
+                .find('-')
+                .map_or(normalized.as_str(), |pos| &normalized[pos + 1..]);
+
+            if !hash_pattern.is_empty() {
+                let matches = substring_match_fn(hash_pattern);
+
+                match matches.len() {
+                    0 => {
+                        // No matches found
+                    }
+                    1 => {
+                        return Ok(ResolvedId {
+                            id: matches.into_iter().next().expect("length checked to be 1"),
+                            match_type: MatchType::Substring,
+                            original_input: input.to_string(),
+                        });
+                    }
+                    _ => {
+                        // Multiple matches - ambiguous
+                        return Err(BeadsError::AmbiguousId {
+                            partial: input.to_string(),
+                            matches,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Step 4: No match found
+        Err(BeadsError::IssueNotFound {
+            id: input.to_string(),
+        })
+    }
+
+    /// Resolve multiple IDs, returning results for each.
+    ///
+    /// If any ID fails to resolve, returns the first error.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first error encountered if any ID fails to resolve.
+    /// See [`IdResolver::resolve`] for the specific error conditions.
+    pub fn resolve_all<F, G>(
+        &self,
+        inputs: &[String],
+        exists_fn: F,
+        substring_match_fn: G,
+    ) -> Result<Vec<ResolvedId>>
+    where
+        F: Fn(&str) -> bool,
+        G: Fn(&str) -> Vec<String>,
+    {
+        inputs
+            .iter()
+            .map(|input| self.resolve(input, &exists_fn, &substring_match_fn))
+            .collect()
+    }
+}
+
+/// Find all issue IDs that contain the given substring in their hash portion.
+///
+/// This is a helper function for implementing the `substring_match_fn` parameter
+/// of `IdResolver::resolve`. The caller provides the list of all known IDs.
+#[must_use]
+pub fn find_matching_ids(all_ids: &[String], hash_substring: &str) -> Vec<String> {
+    all_ids
+        .iter()
+        .filter(|id| {
+            // Extract hash portion (after the first dash)
+            id.find('-').is_some_and(|pos| {
+                let hash_part = &id[pos + 1..];
+                // Also handle hierarchical IDs by getting the base hash (before any dots)
+                let base_hash = hash_part.split('.').next().unwrap_or(hash_part);
+                base_hash.contains(hash_substring)
+            })
+        })
+        .cloned()
+        .collect()
+}
+
+/// Quick helper to resolve a single ID with default settings.
+///
+/// This is useful for simple cases where you just need to resolve one ID.
+///
+/// # Errors
+///
+/// - `IssueNotFound` if no match is found.
+/// - `AmbiguousId` if multiple matches are found.
+/// - `InvalidId` if the input is empty.
+pub fn resolve_id<F, G>(input: &str, exists_fn: F, substring_match_fn: G) -> Result<String>
+where
+    F: Fn(&str) -> bool,
+    G: Fn(&str) -> Vec<String>,
+{
+    let resolver = IdResolver::with_defaults();
+    resolver
+        .resolve(input, exists_fn, substring_match_fn)
+        .map(|r| r.id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ========================================================================
+    // ID Resolution Tests
+    // ========================================================================
+
+    fn mock_db() -> Vec<String> {
+        vec![
+            "bd-abc123".to_string(),
+            "bd-abd456".to_string(),
+            "bd-xyz789".to_string(),
+            "bd-abc123.1".to_string(),  // child
+            "other-def111".to_string(), // different prefix
+        ]
+    }
+
+    fn exists_in_mock(id: &str) -> bool {
+        mock_db().contains(&id.to_string())
+    }
+
+    fn substring_in_mock(pattern: &str) -> Vec<String> {
+        find_matching_ids(&mock_db(), pattern)
+    }
+
+    #[test]
+    fn test_resolve_exact_match() {
+        let resolver = IdResolver::with_defaults();
+        let result = resolver
+            .resolve("bd-abc123", exists_in_mock, substring_in_mock)
+            .unwrap();
+        assert_eq!(result.id, "bd-abc123");
+        assert_eq!(result.match_type, MatchType::Exact);
+    }
+
+    #[test]
+    fn test_resolve_prefix_normalized() {
+        let resolver = IdResolver::with_defaults();
+        let result = resolver
+            .resolve("abc123", exists_in_mock, substring_in_mock)
+            .unwrap();
+        assert_eq!(result.id, "bd-abc123");
+        assert_eq!(result.match_type, MatchType::PrefixNormalized);
+    }
+
+    #[test]
+    fn test_resolve_substring_match() {
+        let resolver = IdResolver::with_defaults();
+        // "xyz" should uniquely match "bd-xyz789"
+        let result = resolver
+            .resolve("xyz", exists_in_mock, substring_in_mock)
+            .unwrap();
+        assert_eq!(result.id, "bd-xyz789");
+        assert_eq!(result.match_type, MatchType::Substring);
+    }
+
+    #[test]
+    fn test_resolve_ambiguous() {
+        let resolver = IdResolver::with_defaults();
+        // "ab" matches both "bd-abc123" and "bd-abd456"
+        let result = resolver.resolve("ab", exists_in_mock, substring_in_mock);
+        assert!(result.is_err());
+        if let Err(BeadsError::AmbiguousId { partial, matches }) = result {
+            assert_eq!(partial, "ab");
+            assert!(matches.contains(&"bd-abc123".to_string()));
+            assert!(matches.contains(&"bd-abd456".to_string()));
+        } else {
+            panic!("Expected AmbiguousId error");
+        }
+    }
+
+    #[test]
+    fn test_resolve_not_found() {
+        let resolver = IdResolver::with_defaults();
+        let result = resolver.resolve("nonexistent", exists_in_mock, substring_in_mock);
+        assert!(result.is_err());
+        if let Err(BeadsError::IssueNotFound { id }) = result {
+            assert_eq!(id, "nonexistent");
+        } else {
+            panic!("Expected IssueNotFound error");
+        }
+    }
+
+    #[test]
+    fn test_resolve_child_id() {
+        let resolver = IdResolver::with_defaults();
+        let result = resolver
+            .resolve("bd-abc123.1", exists_in_mock, substring_in_mock)
+            .unwrap();
+        assert_eq!(result.id, "bd-abc123.1");
+        assert_eq!(result.match_type, MatchType::Exact);
+    }
+
+    #[test]
+    fn test_resolve_case_insensitive() {
+        let resolver = IdResolver::with_defaults();
+        let result = resolver
+            .resolve("BD-ABC123", exists_in_mock, substring_in_mock)
+            .unwrap();
+        assert_eq!(result.id, "bd-abc123");
+    }
+
+    #[test]
+    fn test_resolve_with_custom_prefix() {
+        let custom_db = vec!["proj-aaa111".to_string()];
+        let exists = |id: &str| custom_db.contains(&id.to_string());
+        let substring = |pattern: &str| find_matching_ids(&custom_db, pattern);
+
+        let resolver = IdResolver::with_prefix("proj");
+        let result = resolver.resolve("aaa111", exists, substring).unwrap();
+        assert_eq!(result.id, "proj-aaa111");
+        assert_eq!(result.match_type, MatchType::PrefixNormalized);
+    }
+
+    #[test]
+    fn test_resolve_empty_input() {
+        let resolver = IdResolver::with_defaults();
+        let result = resolver.resolve("", exists_in_mock, substring_in_mock);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_whitespace_trimmed() {
+        let resolver = IdResolver::with_defaults();
+        let result = resolver
+            .resolve("  bd-abc123  ", exists_in_mock, substring_in_mock)
+            .unwrap();
+        assert_eq!(result.id, "bd-abc123");
+    }
+
+    #[test]
+    fn test_find_matching_ids_substring() {
+        let ids = mock_db();
+        let matches = find_matching_ids(&ids, "abc");
+        assert!(matches.contains(&"bd-abc123".to_string()));
+        // Note: bd-abc123.1 is a child and its base hash contains "abc"
+        assert!(matches.contains(&"bd-abc123.1".to_string()));
+    }
+
+    #[test]
+    fn test_find_matching_ids_no_match() {
+        let ids = mock_db();
+        let matches = find_matching_ids(&ids, "zzz");
+        assert!(matches.is_empty());
+    }
+
+    // ========================================================================
+    // Original Tests
+    // ========================================================================
 
     #[test]
     fn test_base36_encode() {

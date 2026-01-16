@@ -1,3 +1,9 @@
-//! CLI command implementations.
-//!
-//! Each command is implemented in its own submodule.
+pub mod count;
+pub mod create;
+pub mod delete;
+pub mod doctor;
+pub mod init;
+pub mod list;
+pub mod q;
+pub mod show;
+pub mod version;

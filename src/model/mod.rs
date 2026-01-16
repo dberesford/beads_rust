@@ -543,7 +543,7 @@ pub struct Comment {
 /// An event in the issue's history (audit log).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Event {
-    pub id: String,
+    pub id: i64,
     pub issue_id: String,
     pub event_type: EventType,
     pub actor: String,

@@ -393,7 +393,7 @@ pub fn get_events(conn: &Connection, issue_id: &str, limit: usize) -> Result<Vec
                 .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
 
             Ok(Event {
-                id: id.to_string(),
+                id,
                 issue_id,
                 event_type,
                 actor,
@@ -451,7 +451,7 @@ pub fn get_all_events(conn: &Connection, limit: usize) -> Result<Vec<Event>> {
                 .map_or_else(|_| Utc::now(), |dt| dt.with_timezone(&Utc));
 
             Ok(Event {
-                id: id.to_string(),
+                id,
                 issue_id,
                 event_type,
                 actor,

@@ -272,7 +272,7 @@ pub fn is_valid_id_format(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{IssueType, Status};
+    use crate::model::{DependencyType, IssueType, Status};
     use chrono::{TimeZone, Utc};
 
     fn base_issue() -> Issue {
@@ -363,5 +363,162 @@ mod tests {
 
         let errors = CommentValidator::validate(&comment).unwrap_err();
         assert!(errors.iter().any(|err| err.field == "content"));
+    }
+
+    #[allow(clippy::struct_excessive_bools)]
+    struct FakeStore {
+        issue_exists: bool,
+        depends_on_exists: bool,
+        dependency_exists: bool,
+        would_cycle: bool,
+    }
+
+    impl DependencyStore for FakeStore {
+        fn issue_exists(&self, id: &str) -> Result<bool, BeadsError> {
+            Ok(match id {
+                "issue" => self.issue_exists,
+                _ => self.depends_on_exists,
+            })
+        }
+
+        fn dependency_exists(
+            &self,
+            _issue_id: &str,
+            _depends_on_id: &str,
+        ) -> Result<bool, BeadsError> {
+            Ok(self.dependency_exists)
+        }
+
+        fn would_create_cycle(
+            &self,
+            _issue_id: &str,
+            _depends_on_id: &str,
+        ) -> Result<bool, BeadsError> {
+            Ok(self.would_cycle)
+        }
+    }
+
+    fn base_dependency() -> Dependency {
+        Dependency {
+            issue_id: "issue".to_string(),
+            depends_on_id: "dep".to_string(),
+            dep_type: DependencyType::Blocks,
+            created_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
+            created_by: None,
+            metadata: None,
+            thread_id: None,
+        }
+    }
+
+    #[test]
+    fn dependency_validation_rejects_self_dependency() {
+        let mut dep = base_dependency();
+        dep.depends_on_id = "issue".to_string();
+        let store = FakeStore {
+            issue_exists: true,
+            depends_on_exists: true,
+            dependency_exists: false,
+            would_cycle: false,
+        };
+
+        let err = DependencyValidator::validate(&dep, &store).unwrap_err();
+        match err {
+            BeadsError::Validation { field, .. } => assert_eq!(field, "depends_on_id"),
+            _ => panic!("expected validation error"),
+        }
+    }
+
+    #[test]
+    fn dependency_validation_rejects_missing_issue() {
+        let dep = base_dependency();
+        let store = FakeStore {
+            issue_exists: false,
+            depends_on_exists: false,
+            dependency_exists: false,
+            would_cycle: false,
+        };
+
+        let err = DependencyValidator::validate(&dep, &store).unwrap_err();
+        match err {
+            BeadsError::ValidationErrors { errors } => {
+                assert!(errors.iter().any(|e| e.field == "issue_id"));
+                assert!(errors.iter().any(|e| e.field == "depends_on_id"));
+            }
+            _ => panic!("expected validation errors"),
+        }
+    }
+
+    #[test]
+    fn dependency_validation_rejects_cycle() {
+        let dep = base_dependency();
+        let store = FakeStore {
+            issue_exists: true,
+            depends_on_exists: true,
+            dependency_exists: false,
+            would_cycle: true,
+        };
+
+        let err = DependencyValidator::validate(&dep, &store).unwrap_err();
+        match err {
+            BeadsError::Validation { field, .. } => assert_eq!(field, "depends_on_id"),
+            _ => panic!("expected validation error"),
+        }
+    }
+
+    #[test]
+    fn dependency_validation_rejects_duplicate() {
+        let dep = base_dependency();
+        let store = FakeStore {
+            issue_exists: true,
+            depends_on_exists: true,
+            dependency_exists: true,
+            would_cycle: false,
+        };
+
+        let err = DependencyValidator::validate(&dep, &store).unwrap_err();
+        match err {
+            BeadsError::Validation { field, .. } => assert_eq!(field, "depends_on_id"),
+            _ => panic!("expected validation error"),
+        }
+    }
+
+    #[test]
+    fn issue_validation_collects_multiple_errors() {
+        let mut issue = base_issue();
+        issue.id = String::new();
+        issue.title = String::new();
+        issue.priority = Priority(9);
+        issue.updated_at = Utc.with_ymd_and_hms(2025, 12, 31, 0, 0, 0).unwrap();
+
+        let errors = IssueValidator::validate(&issue).unwrap_err();
+        let fields: Vec<_> = errors.iter().map(|err| err.field.as_str()).collect();
+        assert!(fields.contains(&"id"));
+        assert!(fields.contains(&"title"));
+        assert!(fields.contains(&"priority"));
+        assert!(fields.contains(&"updated_at"));
+    }
+
+    #[test]
+    fn issue_validation_rejects_external_ref_whitespace() {
+        let mut issue = base_issue();
+        issue.external_ref = Some("gh 12".to_string());
+
+        let errors = IssueValidator::validate(&issue).unwrap_err();
+        assert!(errors.iter().any(|err| err.field == "external_ref"));
+    }
+
+    #[test]
+    fn id_format_validation_accepts_classic_ids() {
+        assert!(is_valid_id_format("bd-abc123"));
+        assert!(is_valid_id_format("beads9-0a9"));
+    }
+
+    #[test]
+    fn id_format_validation_rejects_invalid_ids() {
+        assert!(!is_valid_id_format("BD-abc123"));
+        assert!(!is_valid_id_format("bd-ABC"));
+        assert!(!is_valid_id_format("bd-1"));
+        assert!(!is_valid_id_format("bd-abc123456"));
+        assert!(!is_valid_id_format("bd_abc"));
     }
 }

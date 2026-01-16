@@ -1,314 +1,397 @@
-//! Command-line interface for `beads_rust`.
-//!
-//! This module provides the CLI parsing and command routing using clap.
+//! CLI definitions and entry point.
+
+use clap::{Args, Parser, Subcommand, ValueEnum};
+use std::path::PathBuf;
 
 pub mod commands;
 
-use anyhow::Result;
-use clap::{Args, Parser, Subcommand};
-
-use crate::logging;
-
-/// `beads_rust` (br) - Agent-first issue tracker.
+/// Agent-first issue tracker (`SQLite` + JSONL)
 #[derive(Parser, Debug)]
-#[command(name = "br")]
-#[command(
-    author,
-    version,
-    about = "Agent-first issue tracker (SQLite + JSONL)",
-    long_about = None,
-    after_help = "Non-invasive: no git hooks/ops, no daemons, no external integrations."
-)]
+#[command(name = "br", author, version, about, long_about = None)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct Cli {
-    /// Output format: text (default) or json
+    #[command(subcommand)]
+    pub command: Commands,
+
+    /// Database path (auto-discover .beads/*.db if not set)
+    #[arg(long, global = true)]
+    pub db: Option<PathBuf>,
+
+    /// Actor name for audit trail
+    #[arg(long, global = true)]
+    pub actor: Option<String>,
+
+    /// Output as JSON
     #[arg(long, global = true)]
     pub json: bool,
 
-    /// Robot mode (clean JSON output, diagnostics to stderr)
+    /// Force direct mode (no daemon) - effectively no-op in br v1
     #[arg(long, global = true)]
-    pub robot: bool,
+    pub no_daemon: bool,
 
-    /// Verbose output
-    #[arg(short, long, global = true, action = clap::ArgAction::Count)]
-    pub verbose: u8,
+    /// Skip auto JSONL export
+    #[arg(long, global = true)]
+    pub no_auto_flush: bool,
 
-    /// Quiet mode (errors only)
-    #[arg(short, long, global = true)]
-    pub quiet: bool,
+    /// Skip auto import check
+    #[arg(long, global = true)]
+    pub no_auto_import: bool,
 
-    /// Operate without `SQLite` (JSONL-only mode)
+    /// Allow stale DB (bypass freshness check warning)
+    #[arg(long, global = true)]
+    pub allow_stale: bool,
+
+    /// `SQLite` busy timeout in ms
+    #[arg(long, global = true)]
+    pub lock_timeout: Option<u64>,
+
+    /// JSONL-only mode (no DB connection)
     #[arg(long, global = true)]
     pub no_db: bool,
 
-    /// The command to run
-    #[command(subcommand)]
-    pub command: Option<Commands>,
+    /// Increase logging verbosity (-v, -vv)
+    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
+    pub verbose: u8,
+
+    /// Quiet mode (no output except errors)
+    #[arg(short, long, global = true)]
+    pub quiet: bool,
 }
 
-/// Available commands.
 #[derive(Subcommand, Debug)]
 pub enum Commands {
     /// Initialize a beads workspace
-    Init,
+    Init {
+        /// Issue ID prefix (e.g., "bd")
+        #[arg(long)]
+        prefix: Option<String>,
+
+        /// Overwrite existing DB
+        #[arg(long)]
+        force: bool,
+
+        /// Backend type (ignored, always sqlite)
+        #[arg(long)]
+        backend: Option<String>,
+    },
 
     /// Create a new issue
-    Create,
+    Create(CreateArgs),
 
-    /// Update an existing issue
-    Update,
-
-    /// Close one or more issues
-    Close,
-
-    /// Reopen a closed issue
-    Reopen,
-
-    /// Delete (tombstone) one or more issues
-    Delete,
+    /// Quick capture (create issue, print ID only)
+    Q(QuickArgs),
 
     /// List issues
-    List,
+    List(ListArgs),
 
     /// Show issue details
-    Show,
+    Show {
+        /// Issue IDs
+        ids: Vec<String>,
+    },
 
-    /// List ready (unblocked) issues
+    /// Update an issue
+    Update {
+        /// Issue IDs
+        ids: Vec<String>,
+    },
+
+    /// Close an issue
+    Close {
+        /// Issue IDs
+        ids: Vec<String>,
+    },
+
+    /// Reopen an issue
+    Reopen {
+        /// Issue IDs
+        ids: Vec<String>,
+    },
+
+    /// Delete an issue (creates tombstone)
+    Delete(DeleteArgs),
+
+    /// List ready issues
     Ready,
 
     /// List blocked issues
     Blocked,
 
     /// Search issues
-    Search,
-
-    /// Stats summary (alias: status)
-    #[command(alias = "status")]
-    Stats,
-
-    /// Count issues
-    Count,
-
-    /// List stale issues
-    Stale,
-
-    /// List orphaned issues
-    Orphans,
+    Search { query: String },
 
     /// Manage dependencies
-    Dep(DepCommand),
+    Dep {
+        #[command(subcommand)]
+        command: DepCommands,
+    },
 
     /// Manage labels
-    Label(LabelCommand),
+    Label {
+        #[command(subcommand)]
+        command: LabelCommands,
+    },
 
-    /// Manage comments (alias: comment)
-    #[command(alias = "comment")]
-    Comments(CommentsCommand),
+    /// Manage comments
+    Comments {
+        #[command(subcommand)]
+        command: CommentCommands,
+    },
 
-    /// Defer an issue until a future time
-    Defer,
+    /// Show project statistics
+    Stats,
 
-    /// Clear defer state
-    Undefer,
+    /// Alias for stats
+    Status,
 
-    /// Sync JSONL import/export
-    Sync(SyncArgs),
+    /// Count issues with optional grouping
+    Count(CountArgs),
 
-    /// Read/write configuration
-    Config(ConfigCommand),
+    /// Configuration management
+    Config,
 
-    /// Filter issues with where-style queries
-    Where,
+    /// Sync with JSONL
+    Sync {
+        #[arg(long)]
+        flush_only: bool,
+        #[arg(long)]
+        import_only: bool,
+    },
 
-    /// Show repository / workspace info
-    Info,
+    /// Run read-only diagnostics
+    Doctor,
 
     /// Show version information
     Version,
-
-    /// Quick query (alias for search)
-    #[command(name = "q")]
-    Q,
-
-    /// Lint issues and JSONL
-    Lint,
-
-    /// Dependency graph output
-    Graph,
-
-    /// Epic-related commands
-    Epic,
 }
 
 #[derive(Args, Debug)]
-pub struct DepCommand {
-    /// Dependency subcommand
-    #[command(subcommand)]
-    pub command: Option<DepSubcommand>,
+pub struct CreateArgs {
+    /// Issue title
+    pub title: Option<String>,
+
+    /// Issue title (alternative flag)
+    #[arg(long)]
+    pub title_flag: Option<String>, // Handled in logic
+
+    /// Issue type (task, bug, feature, etc.)
+    #[arg(long = "type", short = 't')]
+    pub type_: Option<String>,
+
+    /// Priority (0-4 or P0-P4)
+    #[arg(long, short = 'p')]
+    pub priority: Option<String>,
+
+    /// Description
+    #[arg(long, short = 'd')]
+    pub description: Option<String>,
+}
+
+#[derive(Args, Debug)]
+pub struct QuickArgs {
+    /// Issue title words
+    pub title: Vec<String>,
+
+    /// Priority (0-4 or P0-P4)
+    #[arg(long, short = 'p')]
+    pub priority: Option<String>,
+
+    /// Issue type (task, bug, feature, etc.)
+    #[arg(long = "type", short = 't')]
+    pub type_: Option<String>,
+
+    /// Labels to apply (repeatable, comma-separated allowed)
+    #[arg(long, short = 'l')]
+    pub labels: Vec<String>,
+}
+
+#[derive(Args, Debug)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct DeleteArgs {
+    /// Issue IDs to delete
+    pub ids: Vec<String>,
+
+    /// Delete reason (default: "delete")
+    #[arg(long, default_value = "delete")]
+    pub reason: String,
+
+    /// Read IDs from file (one per line, # comments ignored)
+    #[arg(long)]
+    pub from_file: Option<PathBuf>,
+
+    /// Delete dependents recursively
+    #[arg(long)]
+    pub cascade: bool,
+
+    /// Bypass dependent checks (orphans dependents)
+    #[arg(long, conflicts_with = "cascade")]
+    pub force: bool,
+
+    /// Prune tombstones from JSONL immediately
+    #[arg(long)]
+    pub hard: bool,
+
+    /// Preview only, no changes
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+/// Arguments for the list command.
+#[derive(Args, Debug, Default)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct ListArgs {
+    /// Filter by status (can be repeated)
+    #[arg(long, short = 's')]
+    pub status: Vec<String>,
+
+    /// Filter by issue type (can be repeated)
+    #[arg(long = "type", short = 't')]
+    pub type_: Vec<String>,
+
+    /// Filter by assignee
+    #[arg(long)]
+    pub assignee: Option<String>,
+
+    /// Filter for unassigned issues only
+    #[arg(long)]
+    pub unassigned: bool,
+
+    /// Filter by specific IDs (can be repeated)
+    #[arg(long)]
+    pub id: Vec<String>,
+
+    /// Filter by label (AND logic, can be repeated)
+    #[arg(long, short = 'l')]
+    pub label: Vec<String>,
+
+    /// Filter by label (OR logic, can be repeated)
+    #[arg(long)]
+    pub label_any: Vec<String>,
+
+    /// Filter by priority (can be repeated)
+    #[arg(long, short = 'p')]
+    pub priority: Vec<u8>,
+
+    /// Filter by minimum priority (0=critical, 4=backlog)
+    #[arg(long)]
+    pub priority_min: Option<u8>,
+
+    /// Filter by maximum priority
+    #[arg(long)]
+    pub priority_max: Option<u8>,
+
+    /// Title contains substring
+    #[arg(long)]
+    pub title_contains: Option<String>,
+
+    /// Description contains substring
+    #[arg(long)]
+    pub desc_contains: Option<String>,
+
+    /// Notes contains substring
+    #[arg(long)]
+    pub notes_contains: Option<String>,
+
+    /// Include closed issues (default excludes closed)
+    #[arg(long, short = 'a')]
+    pub all: bool,
+
+    /// Maximum number of results (0 = unlimited, default: 50)
+    #[arg(long)]
+    pub limit: Option<usize>,
+
+    /// Sort field (`priority`, `created_at`, `updated_at`, `title`)
+    #[arg(long)]
+    pub sort: Option<String>,
+
+    /// Reverse sort order
+    #[arg(long, short = 'r')]
+    pub reverse: bool,
+
+    /// Include deferred issues
+    #[arg(long)]
+    pub deferred: bool,
+
+    /// Filter for overdue issues
+    #[arg(long)]
+    pub overdue: bool,
+
+    /// Use long output format
+    #[arg(long)]
+    pub long: bool,
+
+    /// Use tree/pretty output format
+    #[arg(long)]
+    pub pretty: bool,
 }
 
 #[derive(Subcommand, Debug)]
-pub enum DepSubcommand {
-    /// Add a dependency
+pub enum DepCommands {
     Add,
-
-    /// Remove a dependency
     Remove,
-
-    /// List dependencies
     List,
-
-    /// Show dependency tree
     Tree,
-
-    /// Detect cycles
     Cycles,
 }
 
-#[derive(Args, Debug)]
-pub struct LabelCommand {
-    /// Label subcommand
-    #[command(subcommand)]
-    pub command: Option<LabelSubcommand>,
-}
-
 #[derive(Subcommand, Debug)]
-pub enum LabelSubcommand {
-    /// Add label(s) to an issue
+pub enum LabelCommands {
     Add,
-
-    /// Remove label(s) from an issue
     Remove,
-
-    /// List labels for an issue
     List,
-
-    /// List all labels
     ListAll,
 }
 
-#[derive(Args, Debug)]
-pub struct CommentsCommand {
-    /// Comments subcommand
-    #[command(subcommand)]
-    pub command: Option<CommentsSubcommand>,
-}
-
 #[derive(Subcommand, Debug)]
-pub enum CommentsSubcommand {
-    /// Add a comment
+pub enum CommentCommands {
     Add,
-
-    /// List comments
     List,
 }
 
-#[derive(Args, Debug)]
-pub struct SyncArgs {
-    /// Export JSONL only
+#[derive(Args, Debug, Clone)]
+pub struct CountArgs {
+    /// Group counts by field
+    #[arg(long, value_enum)]
+    pub by: Option<CountBy>,
+
+    /// Filter by status (repeatable or comma-separated)
+    #[arg(long, value_delimiter = ',')]
+    pub status: Vec<String>,
+
+    /// Filter by issue type (repeatable or comma-separated)
+    #[arg(long = "type", value_delimiter = ',')]
+    pub types: Vec<String>,
+
+    /// Filter by priority (0-4 or P0-P4; repeatable or comma-separated)
+    #[arg(long, value_delimiter = ',')]
+    pub priority: Vec<String>,
+
+    /// Filter by assignee
     #[arg(long)]
-    pub flush_only: bool,
+    pub assignee: Option<String>,
 
-    /// Import JSONL only
+    /// Only include unassigned issues
     #[arg(long)]
-    pub import_only: bool,
+    pub unassigned: bool,
+
+    /// Include closed and tombstone issues
+    #[arg(long)]
+    pub include_closed: bool,
+
+    /// Include template issues
+    #[arg(long)]
+    pub include_templates: bool,
+
+    /// Title contains substring
+    #[arg(long)]
+    pub title_contains: Option<String>,
 }
 
-#[derive(Args, Debug)]
-pub struct ConfigCommand {
-    /// Config subcommand
-    #[command(subcommand)]
-    pub command: Option<ConfigSubcommand>,
-}
-
-#[derive(Subcommand, Debug)]
-pub enum ConfigSubcommand {
-    /// Get a config value
-    Get,
-
-    /// Set a config value
-    Set,
-
-    /// List config values
-    List,
-}
-
-/// Run the CLI.
-///
-/// # Errors
-///
-/// Returns an error if the command fails to execute.
-pub fn run() -> Result<()> {
-    let cli = Cli::parse();
-    logging::init_logging(cli.verbose, cli.quiet, None)
-        .map_err(|e| anyhow::anyhow!("Failed to initialize logging: {e}"))?;
-
-    match cli.command {
-        Some(Commands::Version) => {
-            println!("br {}", env!("CARGO_PKG_VERSION"));
-        }
-        Some(command) => {
-            println!("{} command not yet implemented", command.name());
-        }
-        None => println!("br - Agent-first issue tracker. Use --help for usage."),
-    }
-
-    Ok(())
-}
-
-impl Commands {
-    const fn name(&self) -> &'static str {
-        match self {
-            Self::Init => "init",
-            Self::Create => "create",
-            Self::Update => "update",
-            Self::Close => "close",
-            Self::Reopen => "reopen",
-            Self::Delete => "delete",
-            Self::List => "list",
-            Self::Show => "show",
-            Self::Ready => "ready",
-            Self::Blocked => "blocked",
-            Self::Search => "search",
-            Self::Stats => "stats",
-            Self::Count => "count",
-            Self::Stale => "stale",
-            Self::Orphans => "orphans",
-            Self::Dep(dep) => match dep.command {
-                Some(DepSubcommand::Add) => "dep add",
-                Some(DepSubcommand::Remove) => "dep remove",
-                Some(DepSubcommand::List) => "dep list",
-                Some(DepSubcommand::Tree) => "dep tree",
-                Some(DepSubcommand::Cycles) => "dep cycles",
-                None => "dep",
-            },
-            Self::Label(label) => match label.command {
-                Some(LabelSubcommand::Add) => "label add",
-                Some(LabelSubcommand::Remove) => "label remove",
-                Some(LabelSubcommand::List) => "label list",
-                Some(LabelSubcommand::ListAll) => "label list-all",
-                None => "label",
-            },
-            Self::Comments(comments) => match comments.command {
-                Some(CommentsSubcommand::Add) => "comments add",
-                Some(CommentsSubcommand::List) | None => "comments",
-            },
-            Self::Defer => "defer",
-            Self::Undefer => "undefer",
-            Self::Sync(_) => "sync",
-            Self::Config(config) => match config.command {
-                Some(ConfigSubcommand::Get) => "config get",
-                Some(ConfigSubcommand::Set) => "config set",
-                Some(ConfigSubcommand::List) => "config list",
-                None => "config",
-            },
-            Self::Where => "where",
-            Self::Info => "info",
-            Self::Version => "version",
-            Self::Q => "q",
-            Self::Lint => "lint",
-            Self::Graph => "graph",
-            Self::Epic => "epic",
-        }
-    }
+#[derive(ValueEnum, Debug, Clone, Copy, Eq, PartialEq)]
+pub enum CountBy {
+    Status,
+    Priority,
+    Type,
+    Assignee,
+    Label,
 }

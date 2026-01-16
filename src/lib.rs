@@ -42,9 +42,7 @@ pub use error::{BeadsError, Result};
 /// Returns an error if command execution fails.
 #[allow(clippy::missing_const_for_fn)] // Will have side effects once implemented
 pub fn run() -> Result<()> {
-    // Initialize logging
-    // Parse CLI arguments
-    // Execute command
-    // TODO: Implement CLI dispatch
+    // CLI execution is currently handled in main.rs directly.
+    // This function can be used for library-level integration tests or embedding.
     Ok(())
 }
