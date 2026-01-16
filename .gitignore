@@ -16,3 +16,8 @@ Thumbs.db
 
 # Legacy Go reference code (not part of Rust project)
 /legacy_beads/
+
+
+# Added by cargo
+
+/target
