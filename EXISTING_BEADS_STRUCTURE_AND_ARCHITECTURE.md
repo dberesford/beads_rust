@@ -7,6 +7,7 @@
 
 ## Table of Contents
 
+0. [Working TODO (Keep Current)](#0-working-todo-keep-current)
 1. [Project Overview](#1-project-overview)
 2. [Directory Structure](#2-directory-structure)
 3. [Data Types and Models](#3-data-types-and-models)
@@ -22,6 +23,48 @@
 13. [Error Handling](#13-error-handling)
 14. [Porting Considerations](#14-porting-considerations)
 15. [Additional Legacy Findings (2026-01-16)](#15-additional-legacy-findings-2026-01-16)
+
+---
+
+## 0. Working TODO (Keep Current)
+
+This is the **live, granular checklist** for completing the legacy-beads deep-dive and porting spec.
+Update it as soon as new work is discovered or completed.
+
+### Completed (this session)
+
+- [x] Confirmed no existing TODO list in this document (added this section).
+- [x] Reconciled **staleness detection vs auto-import** semantics (mtime/Lstat vs content hash).
+- [x] Documented **auto-import / auto-flush edge cases** (hash metadata, last_import_time, cold-start prefix, debounce).
+- [x] Documented **delete/tombstone workflow** (single vs batch, actor/reason, reference rewriting, hard-delete pruning).
+- [x] Added **non-classic CLI command flag matrix** with explicit exclusion notes.
+
+### Follow-up deep dives (keep expanding)
+
+- [ ] **Sync workflow deep dive (git-heavy, non-classic):**
+  - [ ] `sync` full flow with git operations (stage/commit/push/pull).
+  - [ ] `sync-branch` and merge snapshot lifecycle (base/left/right + meta).
+  - [ ] Conflict resolution rules (JSONL merge driver + metadata).
+  - [ ] Remote selection and routing behavior.
+- [ ] **Import/export correctness audit:**
+  - [ ] Verify export error policy modes (`strict`, `best-effort`, `partial`, `required-core`) against `internal/export`.
+  - [ ] Confirm import update precedence when timestamps collide.
+  - [ ] Capture all JSON output shapes for import/export warnings/manifest.
+- [ ] **Maintenance/repair commands (non-classic):**
+  - [ ] `doctor` / `repair` / `cleanup` / `compact` behavior, flags, and safety guards.
+  - [ ] Verify tombstone pruning rules (age vs dependency-driven purge).
+- [ ] **Hierarchy + templates + epics:**
+  - [ ] `epic` command behavior and flags (if distinct from core CRUD).
+  - [ ] `template`/`formula`/`graph` commands (deprecated or Gastown-bound).
+- [ ] **Integrations + automation (explicitly excluded):**
+  - [ ] `hooks`, `daemon`, `gate`, `mol`, `agent`, `swarm`, `linear`, `jira`, `mail`.
+  - [ ] Document their JSON outputs for exclusion clarity.
+- [ ] **Config key catalog validation:**
+  - [ ] Cross-check config keys vs migrations + YAML-only keys.
+  - [ ] Confirm default values and env var bindings.
+- [ ] **Conformance harness plan:**
+  - [ ] Map each classic command to a test case with expected JSON output.
+  - [ ] Record parity checks for schema + JSONL shapes.
 
 ---
 
@@ -123,6 +166,37 @@ legacy_beads/
 │   └── ui/                     # Terminal UI helpers
 └── docs/                       # Documentation
 ```
+
+### 2.1 Workspace Layout (.beads)
+
+The runtime workspace lives in a `.beads/` directory at the repo root. The files below are the ones `bd` expects or produces. This matters for `br` because the Rust port needs to read and write the same files (or intentionally ignore them).
+
+**Core files:**
+- `beads.db` - primary SQLite database (filename is configurable via `metadata.json`)
+- `issues.jsonl` - canonical JSONL export (one issue per line)
+- `beads.jsonl` - legacy JSONL name (read-only fallback if `issues.jsonl` absent)
+- `metadata.json` - startup config (database path, JSONL export name, backend)
+- `config.yaml` - user config loaded by viper (project-scoped, YAML only)
+- `.local_version` - gitignored version marker for `bd doctor` compatibility
+
+**Sync / merge artifacts (temporary, should be ignored by import):**
+- `beads.base.jsonl`, `beads.left.jsonl`, `beads.right.jsonl` - 3-way merge snapshots
+- `beads.base.meta.json`, `beads.left.meta.json`, `beads.right.meta.json` - snapshot metadata
+
+**Legacy / deprecated files (still encountered in older repos):**
+- `deletions.jsonl` - legacy deletion manifest (superseded by inline tombstones)
+- `deletions.jsonl.migrated` - archived legacy deletions after migration
+
+**Optional / advanced:**
+- `.exclusive-lock` - external tool lock file (causes daemon to skip this DB)
+- `hooks/` - git hook scripts (non-invasive port should not auto-create)
+- `interactions.jsonl` - legacy interactions/audit trail (not used by classic port)
+- `molecules.jsonl` - templates (Gastown; excluded from classic port)
+
+**JSONL selection rules (important):**
+1. Prefer `issues.jsonl` if it exists.
+2. Otherwise use `beads.jsonl`.
+3. Never treat `deletions.jsonl`, `interactions.jsonl`, or merge snapshots as the main JSONL.
 
 ---
 
@@ -1063,6 +1137,22 @@ CREATE INDEX IF NOT EXISTS idx_dependencies_blocking
     WHERE type IN ('blocks', 'parent-child', 'conditional-blocks', 'waits-for');
 ```
 
+**Metadata JSON note:** The `dependencies.metadata` column is queried with `json_extract(...)` for `waits-for` gates. This requires SQLite to be built with the JSON1 extension (modern SQLite includes this by default, but the Rust port should ensure `rusqlite` is built against a JSON-capable SQLite).
+
+#### Blocked Issues Cache Table
+
+This cache is created by migration and materializes the blocked set for fast `ready` queries:
+
+```sql
+CREATE TABLE blocked_issues_cache (
+    issue_id TEXT NOT NULL,
+    PRIMARY KEY (issue_id),
+    FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE
+);
+```
+
+The cache is rebuilt on dependency/status changes (see Section 8).
+
 #### Labels Table
 
 ```sql
@@ -1306,89 +1396,61 @@ func (s *Store) RunInTransaction(ctx context.Context, fn func(context.Context) e
 
 ### 5.4 Migration System
 
-**Migration Format:**
+Legacy beads migrations are **idempotent Go functions**, not versioned SQL files. There is **no schema_migrations table**; every migration checks for the presence of its target column/table/index and no-ops if already applied.
 
-Each migration is an idempotent SQL file. Migrations are tracked in a `schema_migrations` table:
+**Execution model:**
+- Runs on DB open.
+- Uses `BEGIN EXCLUSIVE` (serializes concurrent open/migration attempts).
+- Temporarily disables foreign keys (`PRAGMA foreign_keys=OFF`) because some migrations rebuild tables.
+- Performs **pre-migration orphan cleanup**, then captures a snapshot, then runs migrations, then verifies invariants.
 
-```sql
-CREATE TABLE IF NOT EXISTS schema_migrations (
-    version INTEGER PRIMARY KEY,
-    applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-```
+**Migration catalog (ordered):**
 
-**Migration List (40 migrations):**
+Core/classic migrations (keep for `br`):
+1. `dirty_issues_table` - dirty tracking for incremental export.
+2. `external_ref_column` - `issues.external_ref`.
+3. `composite_indexes` - query performance indexes.
+4. `closed_at_constraint` - closed/tombstone invariant.
+5. `compaction_columns` - compaction metadata columns (even if AI compaction is excluded).
+6. `snapshots_table` - compaction snapshot tables (optional if compaction excluded).
+7. `compaction_config` - compaction config keys (optional if compaction excluded).
+8. `compacted_at_commit_column` - compaction metadata (optional if compaction excluded).
+9. `export_hashes_table` - export dedup tracking.
+10. `content_hash_column` - `issues.content_hash`.
+11. `external_ref_unique` - UNIQUE index on `external_ref`.
+12. `source_repo_column` - multi-repo support (classic).
+13. `repo_mtimes_table` - multi-repo hydration cache.
+14. `child_counters_table` - hierarchical ID counters.
+15. `blocked_issues_cache` - ready-work cache table.
+16. `orphan_detection` - logs orphaned children (no schema change).
+17. `close_reason_column` - `issues.close_reason`.
+18. `tombstone_columns` - inline tombstones.
+19. `messaging_fields` - `sender`, `ephemeral` (classic wisps).
+20. `edge_consolidation` - dependency metadata + thread_id.
+21. `migrate_edge_fields` - moves legacy edge fields to dependencies.
+22. `drop_edge_columns` - removes deprecated edge columns from `issues`.
+23. `pinned_column` - pinned context marker.
+24. `is_template_column` - templates (classic, even if not used).
+25. `remove_depends_on_fk` - allows `external:*` dependencies.
+26. `additional_indexes` - performance indexes.
+27. `tombstone_closed_at` - preserves closed_at when tombstoned.
+28. `created_by_column` - creator attribution.
+29. `closed_by_session_column` - Claude session attribution.
+30. `due_defer_columns` - scheduling fields.
+31. `owner_column` - owner attribution (classic).
+32. `source_system_column` - federation adapter tracking (classic).
 
-| # | Name | Description |
-|---|------|-------------|
-| 001 | dirty_issues_table | Create dirty_issues table for export tracking |
-| 002 | external_ref_column | Add external_ref column to issues |
-| 003 | composite_indexes | Add composite indexes for common queries |
-| 004 | closed_at_constraint | Add CHECK constraint for closed_at invariant |
-| 005 | compaction_columns | Add compaction_level, compacted_at columns |
-| 006 | snapshots_table | Create snapshots table for compaction |
-| 007 | compaction_config | Add compaction config values |
-| 008 | compacted_at_commit_column | Add compacted_at_commit column |
-| 009 | export_hashes_table | Create export_hashes table for dedup |
-| 010 | content_hash_column | Add content_hash column to issues |
-| 011 | external_ref_unique | Add unique constraint on external_ref |
-| 012 | source_repo_column | Add source_repo column for multi-repo |
-| 013 | repo_mtimes_table | Create repo_mtimes table |
-| 014 | child_counters_table | Create child_counters for hierarchical IDs |
-| 015 | blocked_issues_cache | Create blocked_issues_cache table |
-| 016 | orphan_detection | Add orphan handling support |
-| 017 | close_reason_column | Add close_reason column |
-| 018 | tombstone_columns | Add deleted_at, deleted_by, delete_reason, original_type |
-| 019 | messaging_fields | Add sender, ephemeral columns |
-| 020 | edge_consolidation | Add metadata, thread_id to dependencies |
-| 021 | migrate_edge_fields | Migrate legacy edge data to new format |
-| 022 | drop_edge_columns | Remove deprecated edge columns |
-| 023 | pinned_column | Add pinned column |
-| 024 | is_template_column | Add is_template column |
-| 025 | remove_depends_on_fk | Remove FK on depends_on_id for external refs |
-| 026 | additional_indexes | Add performance indexes |
-| 027 | gate_columns | Add await_type, await_id, timeout, waiters, holder (Gastown) |
-| 028 | tombstone_closed_at | Fix tombstone/closed_at handling |
-| 029 | created_by_column | Add created_by column |
-| 030 | agent_fields | Add hook_bead, role_bead, agent_state, etc. (Gastown) |
-| 031 | mol_type_column | Add mol_type column (Gastown) |
-| 032 | hooked_status_migration | Add hooked status support (Gastown) |
-| 033 | event_fields | Add event_kind, actor, target, payload |
-| 034 | closed_by_session_column | Add closed_by_session column |
-| 035 | due_defer_columns | Add due_at, defer_until columns |
-| 036 | owner_column | Add owner column |
-| 037 | crystallizes_column | Add crystallizes column (HOP) |
-| 038 | work_type_column | Add work_type column (Gastown) |
-| 039 | source_system_column | Add source_system column |
-| 040 | quality_score_column | Add quality_score column (HOP) |
+Gastown/HOP migrations (exclude for classic `br`):
+- `gate_columns` (await_type/await_id/timeout/waiters)
+- `agent_fields` (hook_bead, role_bead, agent_state, rig, etc.)
+- `mol_type_column` (molecule type)
+- `hooked_status_migration`
+- `event_fields` (event beads)
+- `crystallizes_column` (HOP economics)
+- `work_type_column` (open_competition)
+- `quality_score_column` (HOP quality)
 
-**Migration Execution:**
-
-```go
-func (s *Store) RunMigrations(ctx context.Context) (int, error) {
-    // Get current version
-    var currentVersion int
-    row := s.db.QueryRowContext(ctx, "SELECT COALESCE(MAX(version), 0) FROM schema_migrations")
-    row.Scan(&currentVersion)
-
-    applied := 0
-    for version, sql := range migrations {
-        if version <= currentVersion {
-            continue
-        }
-
-        // Run migration in transaction
-        tx, _ := s.db.BeginTx(ctx, nil)
-        tx.ExecContext(ctx, sql)
-        tx.ExecContext(ctx, "INSERT INTO schema_migrations (version) VALUES (?)", version)
-        tx.Commit()
-
-        applied++
-    }
-
-    return applied, nil
-}
-```
+**Porting note:** For `br`, prefer a **single consolidated schema** that already includes only the classic fields, then add minimal migrations for forward compatibility. Avoid porting migrations that only serve Gastown or AI compaction.
 
 ---
 
@@ -2057,6 +2119,16 @@ The export system supports four configurable error handling policies:
 
 **Tombstones:** Issues with `status: "tombstone"` ARE exported (for sync).
 
+#### 7.2.1 JSONL File Discovery Rules
+
+When locating the "main" JSONL file for import/export, legacy beads uses a defensive lookup:
+
+1. Prefer `issues.jsonl` if present.
+2. Fall back to `beads.jsonl` for legacy compatibility.
+3. Never treat `deletions.jsonl`, `interactions.jsonl`, or merge snapshots
+   (`beads.base.jsonl`, `beads.left.jsonl`, `beads.right.jsonl`) as the primary JSONL.
+4. If nothing suitable exists, default to `issues.jsonl` for writing.
+
 ### 7.3 Export Flow
 
 ```
@@ -2360,15 +2432,15 @@ Before importing from JSONL, **all export hashes must be cleared** because:
 
 ### 7.13 3-Way Merge (Full Sync)
 
-For complex sync scenarios with concurrent local and remote changes.
+For complex sync scenarios with concurrent local and remote changes, `bd` uses a snapshot-based 3-way merge before pruning deletions.
 
 **Data Sources:**
 
 | Source | Location | Description |
 |--------|----------|-------------|
-| Base | `.beads/sync_base.jsonl` | Snapshot at last successful sync |
-| Local | Database | Current local state |
-| Remote | JSONL after git pull | Incoming remote state |
+| Base | `.beads/beads.base.jsonl` | Snapshot after last successful import |
+| Left | `.beads/beads.left.jsonl` | Snapshot captured after local export, before git pull |
+| Right | `issues.jsonl` (post-pull) | Incoming remote state |
 
 **Merge Decision Table:**
 
@@ -2377,17 +2449,25 @@ For complex sync scenarios with concurrent local and remote changes.
 | Remote only | Import | New issue from remote |
 | Local only | Keep | New local issue |
 | Base only | Delete | Deleted on remote (tombstone) |
-| Local + Remote (identical) | No change | Already in sync |
-| Local + Remote (differ) + Base | See below | 3-way comparison needed |
-| Local + Remote (differ) - Base | LWW by `UpdatedAt` | No base to determine origin |
+| Left + Right (identical) | No change | Already in sync |
+| Left + Right (differ) + Base | See below | 3-way comparison needed |
+| Left + Right (differ) - Base | LWW by `UpdatedAt` | No base to determine origin |
 
 **3-Way Comparison (when Base exists):**
 
 | Condition | Action | Rationale |
 |-----------|--------|-----------|
-| `Local == Base` | Take Remote | Local unchanged, remote modified |
-| `Remote == Base` | Keep Local | Remote unchanged, local modified |
+| `Left == Base` | Take Right | Local unchanged, remote modified |
+| `Right == Base` | Keep Left | Remote unchanged, local modified |
 | All three differ | LWW by `UpdatedAt` | Both modified, resolve by timestamp |
+
+**Deletion Pruning (after merge):**
+After the merged JSONL replaces `issues.jsonl`, the system computes "accepted deletions":
+- Present in Base
+- Unchanged in Left
+- Missing from merged output
+
+Those IDs are deleted from the database (tombstone or hard delete depending on mode). Missing IDs in the DB are treated as success (already deleted).
 
 ---
 
@@ -2395,13 +2475,15 @@ For complex sync scenarios with concurrent local and remote changes.
 
 ### 8.1 Ready Work Definition
 
-An issue is "ready to work" if ALL of the following are true:
+An issue is "ready to work" if ALL of the following are true (defaults shown; filters can override some):
 
-1. **Status is active:** `status IN ('open', 'in_progress')`
+1. **Status is active:** `status IN ('open', 'in_progress')` (unless an explicit status filter is provided)
 2. **Not blocked:** `id NOT IN blocked_issues_cache`
 3. **Not deferred:** `defer_until IS NULL OR defer_until <= CURRENT_TIMESTAMP`
 4. **Not pinned:** `pinned = 0`
-5. **Not ephemeral:** `ephemeral = 0`
+5. **Not ephemeral:** `ephemeral = 0` (or NULL)
+6. **Not a wisp:** ID does not match `%-wisp-%` (defense-in-depth for ephemeral issues)
+7. **Not an internal workflow type:** if `type` filter is not set, exclude `merge-request`, `gate`, `molecule`, `message`, `agent`
 
 ### 8.2 Blocking Calculation
 
@@ -2417,6 +2499,11 @@ An issue is blocked if ANY of the following conditions are met:
 
 **Waits-For Blocking:**
 - Has a `waits-for` dependency with pending (non-closed) children
+
+**External Blocking (resolved at query time):**
+- Has a `blocks` dependency to `external:<project>:<capability>` and the capability is not satisfied
+- Capability is satisfied when the external project has a **closed** issue labeled `provides:<capability>`
+- External project paths are configured via `external_projects` in config.yaml
 
 ### 8.3 Blocked Issues Cache
 
@@ -2458,6 +2545,9 @@ Using recursive CTE, propagate blockage through `parent-child` relationships:
 | `waits-for` (any-children) | B waits for any child | ANY child of spawner closed |
 | `parent-child` | Children inherit parent blocking | Parent unblocked (transitive) |
 
+**External dependencies are intentionally NOT stored in the cache.**
+They are checked lazily at query time to avoid holding multiple DB connections during cache rebuild.
+
 **Failure Close Reason Keywords:**
 - `failed`, `rejected`, `wontfix`, `won't fix`
 - `cancelled`, `canceled`, `abandoned`
@@ -2489,11 +2579,15 @@ Using recursive CTE, propagate blockage through `parent-child` relationships:
 | Not deferred | `defer_until IS NULL` OR `defer_until <= now` |
 | Not pinned | `pinned = 0` |
 | Not ephemeral | `ephemeral = 0` |
+| Not wisp | `id NOT LIKE '%-wisp-%'` |
 
-**Sort Order:**
-1. **Priority tier:** P0-P1 (critical/high) before P2-P4
-2. **Within tier:** Lower priority number first
-3. **Within priority:** Older `created_at` first (FIFO)
+**Sort Order (default = hybrid):**
+- **Hybrid (default):**
+  - Issues created in the last 48 hours: ordered by priority (ascending).
+  - Older issues: ordered by created_at (oldest first).
+  - Tie-breaker: created_at (always ascending).
+- **Priority:** `ORDER BY priority ASC, created_at ASC`.
+- **Oldest:** `ORDER BY created_at ASC`.
 
 **Result:** Limited to requested count (default varies by command)
 
@@ -2560,110 +2654,105 @@ Builds a hierarchical tree structure from a root issue following its dependencie
 
 ## 9. Configuration System
 
-### 9.1 Configuration Hierarchy
+### 9.1 Configuration Sources and Precedence
 
-Configuration values are resolved in order (first found wins):
+Configuration in legacy beads is split across three places: `config.yaml` (startup settings), `metadata.json` (startup file paths), and the SQLite `config` table (runtime settings). Resolution order is:
 
-1. **Command-line flags:** `--priority 1`
-2. **Environment variables:** `BEADS_PRIORITY=1`
-3. **Project config:** `.beads/config.yaml`
-4. **Database config:** `config` table
-5. **User config:** `~/.config/beads/config.yaml`
-6. **Default values:** Hardcoded in code
+1. **Command-line flags** (Cobra) override everything else.
+2. **Environment variables** with `BD_` prefix (viper) override config files and DB settings.
+3. **Project config**: nearest `.beads/config.yaml` discovered by walking up from CWD.
+4. **User config**: `~/.config/bd/config.yaml`, then `~/.beads/config.yaml` (fallback).
+5. **SQLite `config` table** for persistent runtime settings (issue prefix, custom status/type, export policy).
+6. **Defaults** hardcoded in code.
 
-### 9.2 Config Keys
+`metadata.json` (see 9.4) is separate from viper. It is read before DB open and determines the DB path and JSONL name.
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `issue_prefix` | string | `"bd"` | Prefix for generated issue IDs |
-| `default_priority` | int | `2` | Default priority for new issues |
-| `default_type` | string | `"task"` | Default issue type |
-| `author_name` | string | git user | Default author/actor name |
-| `author_email` | string | git email | Default author email |
+### 9.2 YAML-Only Keys (startup settings)
 
-**Status/Type Customization:**
+These keys are read before the DB opens and must live in `config.yaml`. `bd config set` writes them to YAML instead of SQLite.
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `status.custom` | string | `""` | Comma-separated custom statuses |
-| `types.custom` | string | `""` | Comma-separated custom types |
+**Bootstrap / runtime behavior:**
+- `no-db`, `no-daemon`, `no-auto-flush`, `no-auto-import`, `json`
+- `auto-start-daemon`, `lock-timeout`, `flush-debounce`, `remote-sync-interval`
 
-**Import/Export:**
+**Database and identity:**
+- `db` (override DB filename)
+- `actor`, `identity`
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `import.orphan_handling` | string | `"allow"` | How to handle orphan dependencies |
-|                         |        |          | - `allow`: Import all |
-|                         |        |          | - `skip`: Skip orphan deps |
-|                         |        |          | - `strict`: Fail on orphan |
-|                         |        |          | - `resurrect`: Create placeholder |
-| `export.include_events` | bool | `false` | Include events in JSONL |
-| `export.compact_json` | bool | `true` | Minimize JSON whitespace |
+**Git and sync:**
+- `no-push`, `no-git-ops`, `git.author`, `git.no-gpg-sign`
+- `sync-branch` (alias: `sync.branch`)
+- `sync.require_confirmation_on_mass_delete`
+- `daemon.auto_commit`, `daemon.auto_push`, `daemon.auto_pull`
 
-**Compaction:**
+**Routing and validation:**
+- `routing.mode`, `routing.default`, `routing.maintainer`, `routing.contributor`
+- `create.require-description`
+- `validation.on-create`, `validation.on-sync`
+- `hierarchy.max-depth`
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `compaction_enabled` | bool | `false` | Enable AI compaction |
-| `compact_tier1_days` | int | `30` | Days before tier-1 compaction |
-| `compact_tier2_days` | int | `90` | Days before tier-2 compaction |
-| `compact_model` | string | `"claude-3-5-haiku"` | AI model for compaction |
-| `compact_max_tokens` | int | `1000` | Max tokens for summary |
+**Repo and external mapping:**
+- `directory.labels` (directory -> label map)
+- `external_projects` (name -> path map)
 
-**Display:**
+### 9.3 SQLite Config Keys (per-db, persistent)
 
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `display.colors` | bool | `true` | Enable colored output |
-| `display.unicode` | bool | `true` | Enable Unicode symbols |
-| `display.date_format` | string | `"relative"` | Date format: relative, iso, local |
+These keys live in the SQLite `config` table and are accessed via `bd config get/set` (direct mode only).
 
-### 9.3 Environment Variables
+**Core behavior:**
+- `issue_prefix` (ID prefix, default `bd`)
+- `status.custom`, `types.custom` (comma-separated custom values)
+- `import.orphan_handling` (`allow`, `skip`, `strict`, `resurrect`)
 
-All config keys can be set via environment variables with `BEADS_` prefix:
+**Export reliability:**
+- `export.error_policy`, `auto_export.error_policy`
+- `export.retry_attempts`, `export.retry_backoff_ms`
+- `export.skip_encoding_errors`, `export.write_manifest`
+
+**ID generation tuning:**
+- `max_collision_prob`
+- `min_hash_length`
+- `max_hash_length`
+
+### 9.4 metadata.json (startup file config)
+
+`.beads/metadata.json` controls file locations and backend selection:
+
+| Field | Purpose |
+|-------|---------|
+| `database` | DB filename (default `beads.db`) |
+| `jsonl_export` | JSONL filename (default `issues.jsonl`) |
+| `backend` | `sqlite` or `dolt` (classic port should ignore dolt) |
+| `deletions_retention_days` | Legacy deletions manifest retention (default 3) |
+
+If `metadata.json` is missing, `bd` uses defaults. Legacy `config.json` is auto-migrated to `metadata.json`.
+
+### 9.5 Environment Variables
+
+Viper uses a `BD_` prefix and maps dots/hyphens to underscores. Examples:
 
 ```bash
-BEADS_ISSUE_PREFIX=proj
-BEADS_DEFAULT_PRIORITY=1
-BEADS_IMPORT_ORPHAN_HANDLING=strict
+BD_NO_DAEMON=true
+BD_ISSUE_PREFIX=proj
+BD_SYNC_REQUIRE_CONFIRMATION_ON_MASS_DELETE=true
 ```
 
-### 9.4 Config File Format
+Legacy compatibility env vars (explicitly bound, without `BD_`):
+- `BEADS_FLUSH_DEBOUNCE`
+- `BEADS_AUTO_START_DAEMON`
+- `BEADS_IDENTITY`
+- `BEADS_REMOTE_SYNC_INTERVAL`
 
-`.beads/config.yaml`:
+### 9.6 Metadata Table Keys (internal)
 
-```yaml
-issue_prefix: proj
-default_priority: 1
-default_type: feature
+The `metadata` table is internal state. Keys are feature-specific and may be namespaced. Common keys include:
+- `schema_version` (migration version)
+- `bd_version` (db version tracking)
+- `repo_id`, `clone_id` (multi-repo sync bookkeeping)
+- `jsonl_content_hash`, `last_import_time`, `last_import_hash` (staleness checks)
+- `jsonl_content_hash:<repo>`, `last_import_mtime:<repo>` (per-repo in multi-repo mode)
 
-status:
-  custom: "review,testing"
-
-types:
-  custom: "spike,research"
-
-import:
-  orphan_handling: allow
-
-display:
-  colors: true
-  unicode: true
-  date_format: relative
-```
-
-### 9.5 Metadata Keys
-
-Internal metadata stored in `metadata` table (not user-configurable):
-
-| Key | Description |
-|-----|-------------|
-| `jsonl_content_hash` | SHA256 of current JSONL file |
-| `jsonl_file_hash` | Previous file hash (for change detection) |
-| `last_import_time` | RFC3339Nano timestamp of last import |
-| `last_export_time` | RFC3339Nano timestamp of last export |
-| `schema_version` | Current migration version |
-| `workspace_id` | Unique workspace identifier |
+`br` should treat these as opaque unless a specific feature requires them.
 
 ---
 
@@ -2738,14 +2827,16 @@ Internal metadata stored in `metadata` table (not user-configurable):
 ### 10.5 ID Validation
 
 **Format:**
-- Pattern: `{prefix}-{hash}` (e.g., `bd-abc123`)
-- Prefix: Configured via `issue_prefix`
-- Hash: 4-8 lowercase hex characters
+- Pattern: `{prefix}-{hash}` (e.g., `bd-3d0f9a`)
+- Prefix: Configured via `issue_prefix` (hyphen is normalized if omitted)
+- Hash: base36 lowercase (0-9, a-z), adaptive length 3-8
+- Hierarchical IDs append numeric suffixes: `bd-abc123.1`, `bd-abc123.1.2`
 
 **Resolution:**
-- Exact match first
-- Then prefix match (if unique)
-- Error if ambiguous (multiple matches)
+- Exact ID match via `SearchIssues` first (consistent with `bd list --id`)
+- Then normalized prefix match (adds prefix if missing)
+- Then substring match against the hash portion across all prefixes
+- Error on ambiguity with a list of candidates
 
 ---
 
@@ -2753,37 +2844,26 @@ Internal metadata stored in `metadata` table (not user-configurable):
 
 ### 11.1 Issue ID Generation
 
-IDs are generated using SHA256 hash of:
-1. Title
-2. Description (first 100 chars)
-3. Created timestamp (RFC3339Nano)
-4. Workspace ID (from metadata)
+Legacy beads uses **base36 hash IDs** with an **adaptive length** strategy:
 
-```go
-func generateIssueID(prefix string, issue *types.Issue, workspaceID string) string {
-    h := sha256.New()
-    h.Write([]byte(issue.Title))
-    h.Write([]byte(issue.Description[:min(100, len(issue.Description))]))
-    h.Write([]byte(issue.CreatedAt.Format(time.RFC3339Nano)))
-    h.Write([]byte(workspaceID))
+- **Inputs to hash:** `title`, `description`, `creator/actor`, `created_at` (UnixNano), and a `nonce`.
+- **Hash:** SHA256 of the combined string.
+- **Encoding:** base36 (0-9, a-z) for higher density than hex.
+- **Length:** adaptive 3-8 chars based on database size and collision probability (see 11.1.1).
+- **Collision handling:** for each length, try nonces 0..9; if all collide, increase length up to 8.
 
-    hash := hex.EncodeToString(h.Sum(nil))
+This means IDs are deterministic for the same input tuple, but still safe under collisions due to nonce fallback.
 
-    // Progressive length: start at 4 chars, grow as needed
-    idLen := 4
-    for {
-        id := fmt.Sprintf("%s-%s", prefix, hash[:idLen])
-        if !idExists(id) {
-            return id
-        }
-        idLen++
-        if idLen > 8 {
-            // Very rare: fall back to full hash
-            return fmt.Sprintf("%s-%s", prefix, hash[:16])
-        }
-    }
-}
-```
+#### 11.1.1 Adaptive Length Heuristic
+
+The length is chosen to keep collision probability under a threshold using a birthday paradox approximation:
+
+- **Default threshold:** 25% (`max_collision_prob`)
+- **Defaults:** min length 3, max length 8
+- **Counted scope:** top-level issues only (children do not affect length)
+- **Config keys:** `max_collision_prob`, `min_hash_length`, `max_hash_length`
+
+Length increases automatically as the project grows (3 -> 4 -> 5 -> ... -> 8).
 
 ### 11.2 Hierarchical IDs (Dotted)
 
@@ -2796,21 +2876,9 @@ bd-epic1.2     (second child)
 bd-epic1.2.1   (grandchild)
 ```
 
-Generation uses `child_counters` table:
+Generation uses the `child_counters` table to atomically increment the next child number per parent. When importing explicit child IDs, the counter is updated to at least the observed child number (to avoid collisions on future auto-generated children).
 
-```go
-func generateChildID(parentID string) string {
-    // Atomic increment
-    result := db.Exec(`
-        INSERT INTO child_counters (parent_id, last_child) VALUES (?, 1)
-        ON CONFLICT (parent_id) DO UPDATE SET last_child = last_child + 1
-        RETURNING last_child
-    `, parentID)
-
-    childNum := result.LastChild
-    return fmt.Sprintf("%s.%d", parentID, childNum)
-}
-```
+**Hierarchy depth:** limited by `hierarchy.max-depth` (default 3). Exceeding the depth is a validation error.
 
 ### 11.3 Content Hash Computation
 
@@ -2819,76 +2887,13 @@ Content hash is SHA256 of normalized issue content, used for:
 - Deduplication (is this the same issue as another?)
 - Collision detection (same ID, different content?)
 
-**Fields included in hash (in order):**
+**Algorithm notes:**
+- Uses a stable, ordered list of fields and inserts a null separator between each field.
+- Includes core content, workflow fields, assignment, external refs, and flags (pinned/template).
+- In legacy beads, additional Gastown fields are also included in the hash (HOP, gate, agent, molecule fields).
+- **Labels, dependencies, and comments are NOT part of the content hash.**
 
-```go
-func (i *Issue) ComputeContentHash() string {
-    h := sha256.New()
-
-    // 1. Core content
-    h.Write([]byte(i.Title))
-    h.Write([]byte(i.Description))
-    h.Write([]byte(i.Design))
-    h.Write([]byte(i.AcceptanceCriteria))
-    h.Write([]byte(i.Notes))
-
-    // 2. Status & workflow
-    h.Write([]byte(i.Status))
-    h.Write([]byte(strconv.Itoa(i.Priority)))
-    h.Write([]byte(i.IssueType))
-
-    // 3. Assignment
-    h.Write([]byte(i.Assignee))
-    h.Write([]byte(i.Owner))
-    h.Write([]byte(i.CreatedBy))
-
-    // 4. External
-    if i.ExternalRef != nil {
-        h.Write([]byte(*i.ExternalRef))
-    }
-    h.Write([]byte(i.SourceSystem))
-
-    // 5. Close info
-    h.Write([]byte(i.CloseReason))
-    h.Write([]byte(i.ClosedBySession))
-
-    // 6. Tombstone info
-    h.Write([]byte(i.DeletedBy))
-    h.Write([]byte(i.DeleteReason))
-    h.Write([]byte(i.OriginalType))
-
-    // 7. Flags
-    if i.Pinned {
-        h.Write([]byte("pinned"))
-    }
-    if i.IsTemplate {
-        h.Write([]byte("template"))
-    }
-    if i.Ephemeral {
-        h.Write([]byte("ephemeral"))
-    }
-
-    // 8. Labels (sorted for determinism)
-    labels := make([]string, len(i.Labels))
-    copy(labels, i.Labels)
-    sort.Strings(labels)
-    for _, label := range labels {
-        h.Write([]byte(label))
-    }
-
-    // 9. Dependencies (sorted for determinism)
-    deps := make([]string, len(i.Dependencies))
-    for j, dep := range i.Dependencies {
-        deps[j] = fmt.Sprintf("%s:%s:%s", dep.DependsOnID, dep.Type, dep.Metadata)
-    }
-    sort.Strings(deps)
-    for _, dep := range deps {
-        h.Write([]byte(dep))
-    }
-
-    return hex.EncodeToString(h.Sum(nil))
-}
-```
+For the classic Rust port, the hash should include **only classic fields** while preserving the **same order and separator rules** so that legacy and Rust hashes agree when those fields are present.
 
 **Fields NOT included (they change without content change):**
 - `ID` (identity, not content)
@@ -3534,35 +3539,63 @@ Legacy "list" behavior is effectively `SearchIssues` with filters; there is no s
 
 ### 15.14 Import Collision Resolution (Detailed)
 
-The importer uses a **content-first** merge strategy with several concrete rules:
+The importer uses a **content-first** merge strategy with strict safety checks. The actual flow is a superset of the “4‑phase collision table” in §7 and includes prefix, tombstone, and timestamp protection.
 
-- **Batch de-dup**:
-  - Skip duplicate incoming issues by **content hash** (first wins).
-  - Skip duplicate incoming issues by **ID** (first wins).
-- **Tombstone protection**:
-  - If DB has a tombstone for the incoming ID, skip import **before** any other match path.
-- **External ref priority**:
-  - `external_ref` match is checked **before** ID or content hash.
-  - Updates occur only if `incoming.updated_at > existing.updated_at`.
-  - `assignee` and `external_ref` are cleared if incoming is empty.
-  - `pinned` is only updated if incoming explicitly has `pinned=true` (false is treated as "no change").
-- **Content hash match**:
-  - Same content + same ID => idempotent (unchanged).
-  - Same content + different ID:
-    - If **different prefixes**, treat as cross-project duplicate and **skip**.
-    - If **same prefix**, treat as a rename (handled by `handleRename`).
-- **ID collision (new content)**:
-  - Treated as an **update** if incoming is newer (timestamp check).
-  - If older or equal, skip or mark unchanged.
-- **Timestamp-aware protection (GH#865)**:
-  - If a local export timestamp for the ID is newer, the update is blocked.
-- **Creation ordering**:
-  - New issues are sorted by hierarchy depth, then created depth-by-depth (0..3).
-  - This guarantees parents exist before children.
-- **Orphan handling**:
-  - In `orphan_skip` mode, hierarchical children with missing parents are filtered out **before** creation.
+**Pre-import normalization:**
+- **External refs canonicalization**: Linear external refs are normalized to canonical IDs (prevents duplicates from slug vs ID).
+- **Content hashes recomputed** for every incoming issue; JSONL hash is never trusted.
+- **Wisp detection**: IDs containing `-wisp-` are forced to `ephemeral=true` to keep them out of ready work.
+- **export_hashes cleared** before import (staleness logic must be rebuilt after import).
 
-**Porting note:** These rules are subtle but critical for sync correctness, especially in multi-clone workflows.
+**Prefix mismatch handling:**
+- Configured prefix comes from DB `issue_prefix`; allowed prefixes can be expanded via `allowed_prefixes`.
+- In **multi‑repo mode**, prefix validation is skipped entirely.
+- If mismatches are **only tombstones**, they are filtered out silently (treated as noise).
+- Non‑tombstone mismatches:
+  - If `--rename-on-import`: prefixes are rewritten **and** all internal references are updated (title/description/design/notes/acceptance, dependency IDs, comment text).
+  - Otherwise: import fails with a prefix mismatch error (unless `--dry-run`).
+
+**Batch de‑dup (within the JSONL batch):**
+- Duplicate **content_hash** → skip (first wins).
+- Duplicate **ID** → skip (first wins).
+
+**Tombstone protection (highest priority):**
+- If the DB contains a tombstone for the incoming ID, the issue is **skipped immediately** (no resurrection).
+
+**Match phases (priority order):**
+1. **external_ref match** (if present):
+   - Update only if `incoming.updated_at` is newer (timestamp check).
+   - `assignee` and `external_ref` are cleared if incoming is empty.
+   - `pinned` is only updated when explicitly `true` in JSONL (false is treated as “no change”).
+2. **content hash match**:
+   - Same content + same ID → idempotent (unchanged).
+   - Same content + different ID:
+     - If **different prefixes**, treat as cross‑project duplicate → skip.
+     - If **same prefix**, treat as a rename (delete old ID, create new ID). **No global text reference rewrite** is performed here.
+3. **ID collision (same ID, different content)**:
+   - Treated as an **update** if incoming is newer.
+   - If older or equal, skip or mark unchanged.
+4. **No match** → create new issue.
+
+**Timestamp-aware protection (GH#865):**
+- If a local export timestamp is newer than incoming `updated_at`, the update is blocked (skip).
+
+**Creation ordering:**
+- New issues are sorted by hierarchy depth and created depth‑by‑depth (0..3) to ensure parents exist.
+- In `orphan_skip` mode, hierarchical children with missing parents are filtered out **before** creation.
+
+**Dependency/label/comment import:**
+- Dependencies:
+  - Added only if missing; duplicates ignored.
+  - FK errors (missing refs) are skipped with warnings and recorded in results.
+  - In strict mode, non‑FK errors abort the import.
+- Labels:
+  - Only missing labels are added; existing labels are left untouched.
+- Comments:
+  - De‑duped by `author + trimmed text`.
+  - Imported with original timestamps using `ImportIssueComment`.
+
+**Porting note:** These rules are subtle but critical for sync correctness, especially in multi‑clone workflows.
 
 ### 15.15 CLI Flag Semantics (Classic Commands)
 
@@ -3571,21 +3604,27 @@ This subsection captures flag behavior for the **core** non-Gastown CLI commands
 #### create
 
 Accepted inputs:
-- Title is positional OR `--title`; if both are set they must match.
+-- Title is positional OR `--title`; if both are set they must match.
 - `--file` parses a markdown file to create multiple issues; `--dry-run` is **not** supported with `--file`.
 
 Core flags:
 - `--type` (default `task`), `--priority` (default `2`, supports `P0..P4`).
-- Common content flags: `--description`, `--body` (alias), `--body-file`/`--description-file` (file input), `--design`, `--acceptance`, `--notes`.
+- Common content flags: `--description` (via `--body` aliases), `--design`, `--acceptance`, `--notes`.
 - `--labels` / `--label` (alias); labels are normalized (trim + dedupe).
 - `--id` explicit ID, `--parent` hierarchical child, `--deps` dependency list, `--external-ref`.
 - `--due`, `--defer` support relative/natural time; `--defer` warns if in the past.
-- `--silent` prints only ID; otherwise prints a summary and sets “last touched”.
-- `--validate` optionally enforces required description sections (config driven).
+- `--silent` prints only ID and suppresses warnings; otherwise prints a summary and sets “last touched”.
 
 Behavioral notes:
 - Creating title starting with “test” triggers a warning unless `--silent`.
 - If `create.require-description` is enabled, `--description` is mandatory (unless “test” issue).
+- If `--id` is provided, the prefix is validated against `issue_prefix` (and `allowed_prefixes`); `--force` bypasses this check.
+- If `--type=agent` with an explicit ID, the ID must match the agent naming pattern (Gastown-only; classic port excludes).
+- If `--parent` is provided in direct mode, `bd` verifies the parent exists and auto-generates the child ID (`parent.N`).
+- `--deps` accepts `type:id` or `id` (defaults to `blocks`), invalid types are warned and skipped.
+- `--parent` adds a `parent-child` dependency.
+- If any dependency uses `discovered-from:<parent>`, the new issue inherits `source_repo` from that parent (when available).
+- `--waits-for` / `--waits-for-gate` are supported in legacy, but are Gastown-oriented; classic port can omit.
 - After success: marks dirty, schedules auto-flush, fires hooks, sets last touched ID.
 
 #### update
@@ -3596,16 +3635,20 @@ Accepted inputs:
 
 Core flags:
 - `--status`, `--priority`, `--title`, `--assignee`, `--type`, `--estimate`.
-- Common content flags: `--description/--body/--body-file`, `--design`, `--acceptance`, `--notes`.
+- Common content flags: `--description`, `--design`, `--acceptance`, `--notes`.
 - `--add-label`, `--remove-label`, `--set-labels`.
 - `--parent` reparent (empty string removes parent).
 - `--due`, `--defer` (empty string clears).
 - `--claim` sets assignee to actor and status to `in_progress` **atomically** (fails if already claimed).
-- `--session` supports closed status attribution.
+- `--session` sets `closed_by_session` when status is `closed` (flag or `CLAUDE_SESSION_ID` env var).
 
 Behavioral notes:
-- Only changed flags are applied (e.g., P0 must be detected via `Flags().Changed`).
-- After updates: marks dirty + schedules flush, sets last touched to first updated ID, fires hooks.
+- Only changed flags are applied; `P0` is valid and must be detected via `Flags().Changed`.
+- Empty `--due` / `--defer` explicitly clears the field.
+- `--parent` removes existing parent-child edge, then adds a new one (if non-empty) after validating parent exists.
+- `--claim` executes even when no other updates are provided.
+- If no updates (and not claiming), prints “No updates specified”.
+- After updates: marks dirty, schedules flush, sets last touched to first updated ID, fires hooks.
 
 #### close
 
@@ -3615,14 +3658,16 @@ Accepted inputs:
 
 Core flags:
 - `--reason` (default “Closed”), `--resolution` alias.
-- `--force` bypasses pinned/hooked checks.
-- `--suggest-next` outputs newly-unblocked issues.
-- `--continue` + `--no-auto` advances to next step (molecule flow).
+- `--force` bypasses pinned/template checks.
+- `--suggest-next` outputs newly-unblocked issues (single issue only).
+- `--continue` + `--no-auto` advances to next step (molecule flow; Gastown).
 - `--session` sets `closed_by_session`.
 
 Behavioral notes:
-- If not forced, **close is blocked** if issue has open blockers.
+- `--suggest-next` and `--continue` require a single ID.
+- If not forced, **close is blocked** if the issue has open blockers (`IsBlocked` check).
 - Closing triggers hook, marks dirty, schedules flush.
+- In direct mode, `--suggest-next` JSON output is `{ closed: [...], unblocked: [...] }` when unblocked issues exist.
 - `--continue` requires direct DB access; daemon mode prints a hint.
 
 #### list
@@ -3633,6 +3678,21 @@ Core flags (subset for classic port):
 - Date ranges: `--created-after|before`, `--updated-after|before`, `--closed-after|before`.
 - Empty checks: `--empty-description`, `--no-assignee`, `--no-labels`.
 - Scheduling: `--deferred`, `--defer-after|before`, `--due-after|before`, `--overdue`.
+- Output: `--long`, `--format` (template/digraph/dot), `--pretty` / `--tree`, `--watch`, `--sort`, `--reverse`, `--limit`.
+
+Behavioral notes:
+- `--ready` is a shortcut for status=open (excludes in_progress).
+- Default (no `--status` and no `--all`) excludes closed issues.
+- Label filtering auto-applies directory-scoped labels if no labels are provided (config `directory.labels`).
+- `--limit 0` means unlimited; otherwise default is 50 (20 in agent mode).
+- `--pinned` and `--no-pinned` are mutually exclusive.
+- Templates are excluded by default; `--include-templates` shows them.
+- Gates are excluded by default; `--include-gates` shows them (classic port likely omits gates).
+- Default ordering (no `--sort`) is the DB order: `priority ASC, created_at DESC`.
+- `--sort` applies client-side sorting; `--reverse` flips the order.
+- `--tree` is an alias for `--pretty`; `--watch` implies `--pretty`.
+- `--format` supports Go templates and graph formats (`digraph`, `dot`) for tooling.
+- In daemon mode, list uses RPC and supports `--allow-stale` (skip freshness check).
 - Formatting: `--long`, `--pretty|--tree`, `--format` (template/dot/digraph), `--no-pager`.
 - Behavior: `--all` (include closed), `--ready` (open-only shortcut), `--limit` (0=unlimited, agent-mode default=20).
 
@@ -3715,7 +3775,8 @@ Legacy `bd` sync + background behaviors combine three layers: **explicit sync**,
 - `--allow-stale` skips the freshness check entirely (warns to stderr).
 
 **Auto-import details:**
-- JSONL staleness uses **hash comparison** (metadata key `jsonl_content_hash`, fallback `last_import_hash`).
+- **Staleness check** uses `last_import_time` vs JSONL **mtime** (via `Lstat`), not hash.
+- **Auto-import trigger** uses content **hash comparison** (metadata `jsonl_content_hash`, fallback `last_import_hash`).
 - Detects Git conflict markers and aborts with a conflict-resolution hint.
 - Normalizes issues (default values; sets `closed_at` if missing for closed issues).
 - Uses import options: `SkipPrefixValidation=true`, `Strict=false`.
@@ -4155,6 +4216,7 @@ Porting note:
 - Compares against metadata `jsonl_content_hash` (fallback: legacy `last_import_hash`).
 - If hash differs → parse JSONL and import.
 - Hash comparison avoids mtime pitfalls after `git pull` or file touch.
+- Uses a **2MB per-line scanner buffer** to tolerate large JSONL records.
 
 **Auto-import safety**:
 - Rejects JSONL containing **git conflict markers** (`<<<<<<<`, `=======`, `>>>>>>>`) on standalone lines.
@@ -4170,12 +4232,19 @@ Porting note:
 - It checks `autoimport.CheckStaleness`:
   - Parses `last_import_time` (RFC3339Nano, fallback RFC3339).
   - Compares JSONL **mtime** (via `Lstat`, not Stat to avoid symlink false positives).
+  - If metadata is missing/empty or JSONL is absent → **not stale** (first-run safe).
 - If stale:
   - If auto-import enabled → runs auto-import and continues.
   - If `--no-auto-import` → error with explicit recovery steps.
 - `--allow-stale` skips the check with a warning.
 - **Daemon mode bypass**: call sites **skip** `ensureDatabaseFresh` when daemon client is active
   because the daemon auto-imports before serving queries.
+
+**Direct vs daemon auto-import nuance (non-classic note):**
+- Direct-mode `autoImportIfNewer` **does not** update `last_import_time` when the hash matches;
+  it simply returns (so repeated reads may keep re-checking staleness silently).
+- Daemon-side auto-import (`internal/autoimport.AutoImportIfNewer`) **does** update
+  `last_import_time` on hash match to prevent repeated staleness warnings.
 
 **Daemon freshness guard**:
 - Long-lived daemon connections use a **FreshnessChecker** that detects DB file replacement
@@ -4216,6 +4285,12 @@ Porting note:
 4) Create tombstone (default) or hard delete if requested  
 5) Mark dirty + auto-flush
 
+**Single-issue delete specifics**:
+- Uses `CreateTombstone(id, actor, reason)` where `actor` comes from git identity
+  and `reason` is the `--reason` flag (default `"delete"`).
+- Does **not** remove labels/events/comments; it only removes dependencies, adds a `deleted` event,
+  and marks the issue dirty.
+
 **Reference rewriting (edge-safe)**:
 - Uses a boundary-aware regex: ID is replaced only when surrounded by **non-word**
   boundaries where “word” includes letters, digits, `_`, and `-`.
@@ -4223,9 +4298,13 @@ Porting note:
 - The in-memory copies of connected issues are updated after replacement to avoid double-rewrite.
 
 **Batch deletion**:
+- CLI validates all IDs exist before deletion; missing IDs error out.
 - Uses `DeleteIssues` (storage) for cascade/force semantics and returns:
   - `deleted_count`, `dependencies_removed`, `labels_removed`, `events_removed`
   - `orphaned_issues` (when forced without cascade)
+- Storage-level batch delete **creates tombstones** and removes dependencies,
+  but **does not delete labels or historical events** (counts are informational only).
+- Tombstone actor/reason are hard-coded to `"batch delete"` (the `--reason` flag is ignored in batch path).
 - Connected issues are pre-collected and updated after deletion with the same reference rewrite logic.
 
 **Cascade vs force**:
@@ -4243,6 +4322,10 @@ Porting note:
   - Default TTL = `DefaultTombstoneTTL` (30 days).
   - Custom TTL overrides; negative TTL means prune immediately.
 - Writes JSONL atomically and reports pruned IDs/count.
+
+**Delete via daemon (non-classic note)**:
+- Daemon RPC delete path is **simplified** (cascade semantics are not fully implemented);
+  it effectively forces deletion and omits some preview details.
 
 ---
 
@@ -4630,6 +4713,15 @@ Porting note:
 - “Issue Database Status” header with summary and optional extended section.
 - Optional “Recent Activity (last 24 hours)” block.
 - `bd stats` is a direct alias of `bd status`.
+
+**Recent activity calculation (legacy)**:
+- Uses `git log --since=<N hours> --numstat --pretty=format:%H .beads/issues.jsonl`
+  to count commits (every hash line).
+- Uses `git log --since=<N hours> -p .beads/issues.jsonl` to parse added JSON lines.
+- Counts `issues_created` if `created_at` is within the window.
+- Counts `issues_closed` if status is closed and `closed_at` within window.
+- Everything else is treated as `issues_updated` (no robust reopen detection).
+- `issues_reopened` remains 0 (not detected reliably in legacy).
 
 #### 15.41.7 count
 
@@ -5397,6 +5489,809 @@ Gastown-only flags and types are noted but excluded from the Rust port (see Port
 
 **Port note**:
 - `br` should keep `--no-db` but limit features to safe read/write of JSONL.
+
+---
+
+### 15.58 Delete Command (Tombstones + Reference Cleanup)
+
+**Command**: `bd delete <id...>`
+
+**Inputs**:
+- Accepts one or more IDs (positional).
+- `--from-file <path>` reads one ID per line (ignores blank lines and `#` comments).
+- De-duplicates IDs before processing.
+
+**Core behavior**:
+- Deletes issues in a **single transaction** (SQLite) and creates tombstones.
+- Removes dependencies/labels/events associated with deleted issues.
+- Updates text references in connected issues (description, notes, design, acceptance_criteria),
+  replacing matches with `[deleted:<id>]`.
+
+**Dependency safety**:
+- `--cascade`: recursively delete all dependents.
+- `--force`: delete requested issues even if they have external dependents; dependents become orphaned.
+- Neither flag: **fails** if any issue has dependents outside the deletion set.
+
+**Hard delete**:
+- `--hard` **prunes tombstones from JSONL immediately** (negative TTL).
+- Tombstones remain in DB to prevent resurrection until cleanup.
+- In `--no-db` fallback, `--hard` removes the issue from JSONL directly.
+
+**Preview / dry-run**:
+- Without `--force`, shows a **preview** and exits.
+- `--dry-run` shows the same preview but explicitly says no changes made.
+
+**JSON output (SQLite path)**:
+```
+{
+  "deleted": ["bd-1", "bd-2"],
+  "deleted_count": 2,
+  "dependencies_removed": 7,
+  "labels_removed": 3,
+  "events_removed": 1,
+  "references_updated": 4,
+  "orphaned_issues": ["bd-9"]
+}
+```
+
+**JSON output (`--no-db` fallback)**:
+```
+{
+  "deleted": ["bd-1"],
+  "deleted_count": 1,
+  "dependencies_removed": 2,
+  "references_updated": 1
+}
+```
+
+**Port notes (non-invasive)**:
+- Keep tombstone semantics (classic hybrid model).
+- Avoid automatic git modifications during delete (legacy uses pruning in JSONL only).
+
+---
+
+### 15.59 Merge / Resolve-Conflicts / Repair (Maintenance Tools)
+
+#### 15.59.1 merge (git merge driver)
+
+**Purpose**: 3-way merge driver for `.beads/issues.jsonl`.
+
+**Usage**: `bd merge <output> <base> <left> <right>`
+- Exit codes: `0` success, `1` conflicts, `2` error.
+- Uses merge rules:
+  - identity by `{id, created_at, created_by}`
+  - `updated_at` wins for most fields
+  - dependencies unioned
+  - tombstones preserved
+
+**Note**: Not for duplicate issues (use `bd duplicates`).
+
+**Cleanup**:
+- Legacy cleanup removes backup files and runs `git clean -f` in `.beads/`.
+
+**Port note**:
+- `br` v1 should **exclude** git-side merge driver and cleanup behavior
+  (conflicts with non-invasive policy). Keep merge logic only if explicitly
+  invoked for JSONL repair (see resolve-conflicts).
+
+#### 15.59.2 resolve-conflicts
+
+**Command**: `bd resolve-conflicts [file]`
+
+**Behavior**:
+- Parses conflict markers `<<<<<<<`, `=======`, `>>>>>>>` in JSONL.
+- Mode `mechanical` (default): deterministic merge rules.
+- Mode `interactive`: not implemented.
+- Writes resolved file and creates backup: `<file>.pre-resolve`.
+
+**Resolution rules** (mechanical):
+- If both sides unparseable: keep both.
+- If only one side parseable: keep that side.
+- If both parseable:
+  - `updated_at` wins for title/description/status
+  - `closed` overrides other statuses
+  - notes concatenated if different
+  - priority picks lower number (higher priority)
+  - dependencies unioned
+
+**JSON output shape**:
+```
+{
+  "file_path": "...",
+  "dry_run": false,
+  "mode": "mechanical",
+  "conflicts_found": 2,
+  "conflicts_resolved": 2,
+  "status": "success",
+  "backup_path": "...",
+  "conflicts": [
+    {
+      "line_range": "10-24",
+      "left_label": "HEAD",
+      "right_label": "branch",
+      "resolution": "merged",
+      "issue_id": "bd-123"
+    }
+  ]
+}
+```
+
+#### 15.59.3 repair
+
+**Purpose**: repair corrupted DB that fails invariant checks by removing orphans.
+
+**Behavior**:
+- Opens SQLite directly (bypasses invariants).
+- Finds and deletes orphans:
+  - dependencies with missing `issue_id`
+  - dependencies with missing `depends_on_id` (excluding `external:*`)
+  - labels with missing issue
+  - comments with missing issue
+  - events with missing issue
+- Creates backup `beads.db.pre-repair`.
+- Executes cleanup in a transaction and runs WAL checkpoint.
+
+**JSON output shape**:
+```
+{
+  "database_path": "...",
+  "dry_run": false,
+  "orphan_counts": {
+    "dependencies_issue_id": 3,
+    "dependencies_depends_on": 2,
+    "labels": 1,
+    "comments": 0,
+    "events": 0,
+    "total": 6
+  },
+  "orphan_details": { ... },
+  "status": "success",
+  "backup_path": "beads.db.pre-repair"
+}
+```
+
+**Port note**:
+- Keep **as explicit manual tool only** (never automatic).
+- Require user intent (no background repair).
+
+---
+
+### 15.60 Edit / Move / Refile
+
+#### 15.60.1 edit
+
+**Command**: `bd edit <id> [--title|--description|--design|--notes|--acceptance]`
+
+**Behavior**:
+- Opens `$EDITOR` (or `$VISUAL`; falls back to `vim/vi/nano/emacs`).
+- Writes current field to temp file, lets user edit, then updates field.
+- Default field: `description`.
+- If unchanged, prints “No changes made”.
+- Title cannot be empty.
+
+**Output**:
+- Human only (no JSON shape): `Updated <field> for issue: <id>`.
+
+#### 15.60.2 move (Gastown)
+
+**Command**: `bd move <id> --to <rig|prefix>`
+
+**Behavior**:
+- Creates new issue in target rig, copies fields + labels.
+- Adds `(Moved from <old>)` to description.
+- Dependencies:
+  - deps **from** moved issue are removed
+  - dependents are updated to `external:<rig>:<new-id>`
+- Closes source issue unless `--keep-open`.
+- `--skip-deps` bypasses dependency remapping.
+
+**JSON output**:
+`{ "source": "...", "target": "...", "closed": true, "deps_remapped": 3 }`
+
+#### 15.60.3 refile (Gastown-lite)
+
+**Command**: `bd refile <id> <rig>`
+
+**Behavior**:
+- Like `move`, but **no dependency remapping**.
+- Adds `(Refiled from <old>)` to description.
+- Closes source unless `--keep-open`.
+
+**JSON output**:
+`{ "source": "...", "target": "...", "closed": true }`
+
+**Port note**:
+- `move` / `refile` are Gastown-oriented and are **excluded** from `br` v1.
+
+---
+
+### 15.61 Reset (Destructive Admin) and Clean (Missing)
+
+#### 15.61.1 reset
+
+**Command**: `bd reset`
+
+**Purpose**: remove all beads data and configuration, returning to an uninitialized state.
+
+**Preview mode (default)**:
+- Runs in dry-run unless `--force` is provided.
+- JSON output:
+```
+{ "dry_run": true, "items": [ { "type": "...", "path": "...", "description": "..." } ] }
+```
+- Human output enumerates items to be removed.
+
+**Items removed when `--force`**:
+- `.beads/` directory (DB, JSONL, config).
+- Beads git hooks in `.git/hooks/` (pre-commit, post-merge, pre-push, post-checkout).
+- Merge driver config keys: `merge.beads.driver`, `merge.beads.name`.
+- `.gitattributes` entry containing `merge=beads` (file is deleted if empty).
+- Sync-branch worktrees under `.git/beads-worktrees/`.
+- Running daemon (if detected via `.beads/daemon.pid`).
+
+**JSON output (force)**:
+```
+{ "reset": true, "success": true, "errors": ["..."]? }
+```
+
+**Error cases**:
+- Not a git repo -> error.
+- No `.beads` -> message “Beads not initialized”.
+
+**Port note (non-invasive)**:
+- `br` v1 should **exclude** `reset` because it deletes files and modifies git config.
+- If reintroduced, require explicit confirm prompts and avoid touching hooks by default.
+
+#### 15.61.2 clean (referenced, not present)
+
+**Observation**:
+- `bd clean` is referenced in help text, but no `clean` command exists in the current legacy tree.
+- Cleanup behavior is partially embedded in `bd merge` (git clean in `.beads/`)
+  and in doctor `--fix` tooling.
+
+**Port note**:
+- Do **not** implement `br clean` unless a clear spec is restored.
+
+---
+
+### 15.62 Restore (Compaction Rollback via Git)
+
+**Command**: `bd restore <issue-id>`
+
+**Purpose**: display full pre-compaction issue content by checking out the commit
+referenced in `compacted_at_commit` and reading JSONL at that point in history.
+
+**Behavior**:
+- Requires git repo and clean working tree (no uncommitted changes).
+- Checks out the commit, reads the issue from JSONL, prints details, then returns to original HEAD.
+- Read-only intent, but **does perform git checkout**.
+
+**Output**:
+- Human-only; `--json` flag is accepted but **not used** in the current implementation.
+
+**Port note**:
+- `br` v1 should **exclude** restore (too invasive; git state mutation).
+
+---
+
+### 15.63 Audit Log (Agent Interaction Recording)
+
+**Command**: `bd audit`
+
+**Storage**:
+- Append-only JSONL at `.beads/interactions.jsonl`.
+- Entry IDs prefixed `int-` (random 4 bytes, hex).
+
+**Subcommands**:
+
+**`bd audit record`**:
+- Accepts explicit fields or reads JSON from stdin.
+- If stdin is piped and **no explicit fields** are provided, stdin JSON is used.
+- `--stdin` forces stdin JSON.
+- `--kind` is required if using flags (not stdin).
+- JSON output: `{ "id": "...", "kind": "..." }`.
+- Text output: prints the ID only.
+
+**`bd audit label <entry-id>`**:
+- Appends a new entry with `kind="label"` and `parent_id=<entry-id>`.
+- Requires `--label` value; optional `--reason`.
+- JSON output: `{ "id": "...", "parent_id": "...", "label": "..." }`.
+
+**Entry schema** (`internal/audit.Entry`):
+```
+{
+  "id": "int-....",
+  "kind": "llm_call" | "tool_call" | "label" | ...,
+  "created_at": "RFC3339",
+  "actor": "...",
+  "issue_id": "bd-...",
+  "model": "...",
+  "prompt": "...",
+  "response": "...",
+  "error": "...",
+  "tool_name": "...",
+  "exit_code": 0,
+  "parent_id": "...",
+  "label": "good" | "bad" | ...,
+  "reason": "...",
+  "extra": { ... }
+}
+```
+
+**Port note**:
+- Optional for `br` v1, but consistent with “agent-first” workflows.
+
+---
+
+### 15.64 Activity Feed (Daemon-Only)
+
+**Command**: `bd activity`
+
+**Dependencies**:
+- Requires daemon (RPC mutations). Direct mode is rejected.
+- `--town` aggregates from multiple rigs via `routes.jsonl` (Gastown).
+
+**Filters**:
+- `--mol <prefix>` filters by issue ID prefix.
+- `--type <event>` filters by mutation type (`create`, `update`, `delete`, `comment`, etc.).
+- `--since <duration>` supports `5m`, `1h`, `2d` format.
+- `--limit <N>` default 100.
+
+**Follow mode**:
+- `--follow` polls every `--interval` (default 500ms).
+- Emits warnings when daemon unreachable.
+
+**Output**:
+- Non-follow JSON: **array** of ActivityEvent objects.
+- Follow JSON: **one JSON object per line**, not wrapped in an array.
+- Human output: `[HH:MM:SS] <symbol> <message>`.
+
+**Event display**:
+- Symbols: `+` create/bonded, `→` update/started, `✓` closed, `✗` fail, `⊘` deleted, `💬` comment.
+
+**Port note**:
+- Exclude from `br` v1 (daemon is excluded).
+
+---
+
+### 15.65 Last-Touched Tracking
+
+**Purpose**: store the most recently touched issue ID to support commands without IDs.
+
+**Storage**:
+- File: `.beads/last-touched` (local-only).
+- Permissions: `0600`.
+
+**Behavior**:
+- `SetLastTouchedID` is best-effort (errors ignored).
+- `GetLastTouchedID` returns empty on missing/invalid file.
+- `ClearLastTouched` deletes the file (best-effort).
+
+**Used by**:
+- `bd update` and `bd close` when no IDs are provided.
+
+---
+
+### 15.66 Defer / Undefer
+
+**Commands**:
+- `bd defer <id...> [--until <time>]`
+- `bd undefer <id...>`
+
+**Behavior**:
+- `defer` sets `status=deferred` and optionally `defer_until`.
+- `undefer` sets `status=open` and clears `defer_until` (nil/empty).
+- `--until` uses natural time parsing (`+1h`, `tomorrow`, `2025-01-15`).
+
+**Output**:
+- `--json`: array of updated Issue objects.
+- Human: `Deferred <id>` or `Undeferred <id> (now open)`.
+
+---
+
+### 15.67 Integrity Helpers (No CLI Command)
+
+**Note**: There is no `bd integrity` command in the current legacy tree.
+Integrity logic exists as helper functions used by export/sync.
+
+**Key helpers**:
+- `hasJSONLChanged` compares `jsonl_content_hash` metadata vs JSONL content hash.
+- `computeDBHash` exports DB to memory (issues + deps + labels + comments), hashes content.
+- `validatePreExport` prevents exporting empty DB over non-empty JSONL and requires import
+  if JSONL content hash differs from metadata.
+
+**Port note**:
+- Keep these checks internal to `export` / `sync --flush-only`.
+
+---
+
+### 15.68 Sync Submodes (Legacy Git Workflow)
+
+**`bd sync --status`**:
+- Shows branch differences between current branch and `sync.branch`.
+- Prints commit logs (`git log --oneline`) and diff for `.beads/issues.jsonl`.
+
+**`bd sync --merge`**:
+- Merges `sync.branch` into current branch (git merge with message).
+- Refuses if uncommitted changes exist.
+- Suggests follow-up steps: `sync --import-only`, then `sync`.
+
+**`bd sync --from-main`**:
+- One-way sync from default remote branch (uses `sync.remote` if set).
+- Steps: fetch remote, checkout `.beads/` from remote branch, import JSONL.
+- Forces `noGitHistory` to avoid deletion artifacts.
+
+**`bd sync --check`**:
+- Runs pre-sync integrity checks:
+  - forced-push detection for sync branch
+  - prefix mismatch in JSONL
+  - orphaned children in JSONL
+- Exits with code 1 if problems found.
+
+**Port note (non-invasive)**:
+- `br` v1 should **exclude all git-based sync modes**.
+- Keep only `sync --flush-only` as a synonym for `export` if desired.
+
+---
+
+### 15.69 Config Key Catalog (Legacy)
+
+**YAML-only keys** (stored in `.beads/config.yaml`):
+- Bootstrap: `no-db`, `no-daemon`, `no-auto-flush`, `no-auto-import`, `json`, `auto-start-daemon`
+- DB/identity: `db`, `actor`, `identity`
+- Timing: `flush-debounce`, `lock-timeout`, `remote-sync-interval`
+- Git: `git.author`, `git.no-gpg-sign`, `no-push`, `no-git-ops`
+- Sync: `sync-branch` / `sync.branch`, `sync.require_confirmation_on_mass_delete`
+- Daemon: `daemon.auto_commit`, `daemon.auto_push`, `daemon.auto_pull`
+- Routing: `routing.mode`, `routing.default`, `routing.maintainer`, `routing.contributor`
+- Create: `create.require-description`
+- Validation: `validation.on-create`, `validation.on-sync`
+- Hierarchy: `hierarchy.max-depth`
+
+**DB-stored config** (via `bd config set`):
+- `issue_prefix` (canonical prefix, no trailing hyphen)
+- `allowed_prefixes` (comma-separated list of additional valid prefixes)
+- `status.custom` (comma-separated custom statuses)
+- `types.custom` (comma-separated custom issue types)
+- `import.missing_parents` (`strict|resurrect|skip|allow`)
+- `sync.remote` (remote name for sync-from-main)
+
+**Port note**:
+- `br` v1 should keep DB-stored keys required for classic workflows
+  and limit YAML-only keys to startup behavior (no daemon, no git hooks).
+
+---
+
+### 15.70 JSONL Merge Driver Rules (Vendored)
+
+This is the field-level merge logic used by `bd merge` and the sync 3-way merge.
+
+**Identity**:
+- Keyed by `{id, created_at, created_by}` with fallback to `id` when necessary.
+
+**Tombstones**:
+- Tombstone wins over live unless expired (default TTL 30d + 1h clock skew grace).
+- Tombstone merge uses later `deleted_at`.
+- Deletion wins over modification when only one side deleted.
+
+**Field rules (conflicts)**:
+- `title`, `description`: last-write-wins by `updated_at`.
+- `notes`: concatenate with `\n\n---\n\n` separator.
+- `status`: closed wins; tombstone wins as safety fallback.
+- `priority`: lower number wins; `0` treated as “unset” when competing.
+- `issue_type`: left wins on conflict.
+- `dependencies`: 3-way merge, **removals win** over additions.
+- `labels`: union (dedupe).
+- `comments`: append + dedupe (by id or content).
+- `closed_at`: max; `close_reason` / `closed_by_session` from later closed_at.
+
+**Port note**:
+- Only relevant if `br` retains JSONL merge tooling. Otherwise omit.
+
+---
+
+### 15.71 Lint Command (Template Validation)
+
+`bd lint` performs lightweight template validation against the **issue description**.
+It **does not** require formal Markdown headings; it only checks whether the
+required heading text appears **case-insensitively** anywhere in the description.
+
+**CLI**:
+- `bd lint [issue-id...]`
+- Flags:
+  - `--type, -t <type>`: filter by issue type.
+  - `--status, -s <status>`: filter by status; default is `open`. Use `all` for all statuses.
+  - `--json` (global): emit JSON.
+
+**Defaults / selection**:
+- If IDs are provided, only those issues are linted.
+- Without IDs: lists issues (daemon) or searches (direct), defaulting to `open`.
+- Daemon list hard-caps at **1000** issues.
+- Errors fetching a specific issue are logged to stderr and skipped; lint continues.
+
+**Required sections (classic scope)**:
+- `bug`: **Steps to Reproduce**, **Acceptance Criteria**
+- `task` and `feature`: **Acceptance Criteria**
+- `epic`: **Success Criteria**
+- All other types: no requirements (lint yields no warnings).
+
+**Validation details**:
+- Matching is substring-based, case-insensitive.
+- Markdown prefixes (`#` / `##`) are stripped before matching.
+
+**JSON output shape**:
+```json
+{
+  "total": 3,
+  "issues": 2,
+  "results": [
+    {
+      "id": "bd-abc123",
+      "title": "Fix login bug",
+      "type": "bug",
+      "missing": ["## Steps to Reproduce"],
+      "warnings": 1
+    }
+  ]
+}
+```
+Notes:
+- `results` includes **only** issues with warnings.
+- `issues` is the count of warning-bearing issues (not total scanned).
+- `total` is the **sum** of missing sections across all results.
+- In JSON mode, `bd lint` exits **0** even if warnings are present.
+
+**Human output**:
+- No warnings: `✓ No template warnings found (N issues checked)`
+- With warnings:
+  - `Template warnings (X issues, Y warnings):`
+  - One block per issue:
+    - `<id> [<type>]: <title>`
+    - `  ⚠ Missing: <Heading>` (one line per missing heading)
+- Exit code is **1** if warnings are found in human mode.
+
+**Port note (non-invasive)**:
+- Keep lint in `br` v1 (useful for agents), but keep **strictly read-only**.
+- Scope to classic types only; avoid gastown-only types.
+
+---
+
+### 15.72 Markdown Bulk Create (`bd create --file`)
+
+Bulk creation is supported via `bd create --file <path>` and parses a Markdown
+document into multiple issues. This is **not** the same as JSONL import; it is
+only a CLI convenience.
+
+**CLI constraints**:
+- `--file` (`-f`) is mutually exclusive with a positional title.
+- `--dry-run` is **not supported** with `--file`.
+- File must be `.md` or `.markdown`, must exist, and **may not** contain `..`.
+
+**Markdown grammar**:
+- Each issue begins with an **H2** header:
+  - `## Issue Title`
+- Per-issue sections are **H3** headers:
+  - `### Section Name`
+- Recognized section names (case-insensitive):
+  - `Priority`
+  - `Type`
+  - `Description`
+  - `Design`
+  - `Acceptance Criteria` (alias: `Acceptance`)
+  - `Assignee`
+  - `Labels`
+  - `Dependencies` (alias: `Deps`)
+- Unknown sections are ignored.
+
+**Defaults**:
+- `Priority`: **2**
+- `Type`: **task**
+
+**Description quirks (actual behavior)**:
+- Lines immediately after the H2 title **before any H3 section** are treated
+  as the description.
+- **Only the first non-empty line** is captured; subsequent lines are ignored.
+  (This is a known parsing quirk in the current implementation.)
+
+**Parsing rules**:
+- Section content is captured verbatim (multi-line) until the next H2/H3.
+- `Labels` and `Dependencies` split on commas **or** whitespace.
+- Dependencies may be `type:id` or just `id`:
+  - Default type is `blocks`.
+  - Invalid dependency types are warned and skipped.
+
+**Creation behavior**:
+- Direct mode: each issue is created sequentially; labels and dependencies are
+  added afterward (best-effort with warnings on failure).
+- Daemon mode: a batch RPC of `create` operations is used; hooks are still
+  invoked per created issue.
+
+**Output**:
+- JSON mode: array of created issue objects (successes only).
+- Human mode:
+  - `✓ Created N issues from <file>:`
+  - `  <id>: <title> [P<priority>, <type>]`
+- Failures are reported to stderr as:
+  - `✗ Failed to create N issues:` followed by issue titles.
+
+**Port note**:
+- Keep the grammar and quirks for compatibility; do **not** auto-fix the
+  description parsing bug unless explicitly opted-in for `br`.
+
+---
+
+### 15.73 Info Command (`bd info`)
+
+`bd info` prints diagnostic metadata about the database, daemon, and config.
+
+**Flags**:
+- `--json` (global): JSON output.
+- `--schema`: include schema details.
+- `--whats-new`: show recent version changes and exit.
+- `--thanks`: show contributors/thanks page and exit.
+
+**Normal JSON output** (no `--whats-new` / `--thanks`):
+```json
+{
+  "database_path": "/abs/path/.beads/beads.db",
+  "mode": "daemon|direct",
+  "daemon_connected": true,
+  "socket_path": "/abs/path/.beads/beads.sock",
+  "daemon_version": "0.47.2",
+  "daemon_status": "healthy",
+  "daemon_compatible": true,
+  "daemon_uptime": 123.4,
+  "issue_count": 42,
+  "daemon_fallback_reason": "no-daemon",
+  "daemon_detail": "…",
+  "config": { "issue_prefix": "bd", "...": "..." },
+  "schema": {
+    "tables": ["issues","dependencies","labels","config","metadata"],
+    "schema_version": "0.47.2",
+    "config": { "issue_prefix": "bd" },
+    "sample_issue_ids": ["bd-abc","bd-def","bd-ghi"],
+    "detected_prefix": "bd"
+  }
+}
+```
+Notes:
+- `config` is fetched from the **config table** and only appears if readable.
+- `schema` appears **only** when `--schema` is set.
+- In direct mode, `issue_count` is computed by a full search with an empty filter.
+
+**Human output**:
+- Header:
+  - `Beads Database Information`
+  - `Database: <abs path>`
+  - `Mode: daemon|direct`
+- Daemon status block:
+  - Connected? socket path? health? compatibility? uptime?
+  - If not connected, prints fallback reason and detail when present.
+- Issue count line when available.
+- Schema block when `--schema` is set.
+- **Hook warnings** appended at the end (see Port note).
+
+**Port note (non-invasive)**:
+- `bd info` prints hook warnings by calling git hook detectors.
+  For `br`, **omit hook checks** unless explicitly requested with a flag.
+- `--whats-new` / `--thanks` are informational; include only if desired.
+
+---
+
+### 15.74 Version Command (`bd version`)
+
+`bd version` prints client version/build metadata, optionally comparing with the daemon.
+
+**Flags**:
+- `--daemon`: connect to daemon and compare versions.
+- `--json` (global): JSON output.
+
+**Normal JSON output**:
+```json
+{
+  "version": "0.47.2",
+  "build": "dev",
+  "commit": "abcdef123456",
+  "branch": "main"
+}
+```
+`commit` and `branch` are omitted if unknown.
+
+**Normal human output**:
+- `bd version <Version> (<Build>)`
+- If commit/branch are available:
+  - `bd version <Version> (<Build>: <branch>@<short-commit>)`
+
+**`--daemon` JSON output**:
+```json
+{
+  "daemon_version": "0.47.2",
+  "client_version": "0.47.2",
+  "compatible": true,
+  "daemon_uptime": 42.1
+}
+```
+
+**`--daemon` human output**:
+- `Daemon version: ...`
+- `Client version: ...`
+- `Compatibility: ✓ compatible` or `✗ incompatible (restart daemon recommended)`
+- `Daemon uptime: <seconds>`
+- Exits **1** if incompatible.
+
+**Port note**:
+- If `br` has no daemon, `--daemon` should either be omitted or return a clear
+  error stating that no daemon is supported.
+
+---
+
+### 15.75 Template Commands (Deprecated, Label-Based)
+
+`bd template` provides a **label-driven** templating system (deprecated in favor
+of `bd mol` / `bd formula`). Templates are **epics** labeled `template`.
+This command is **deprecated** and slated for removal upstream.
+
+**Subcommands**:
+- `bd template list`
+- `bd template show <template-id>`
+- `bd template instantiate <template-id> [--var key=value ...] [--assignee name] [--dry-run]`
+
+**Template identification**:
+- Templates are issues with label `template`.
+- Variables use `{{var_name}}` placeholders, where names match:
+  `[a-zA-Z_][a-zA-Z0-9_]*`.
+
+**`template list`**:
+- JSON: array of issue objects (templates only).
+- Human:
+  - If none: prints instructions for creating a template.
+  - Else: `Templates (for bd template instantiate):`
+    - `  <id>: <title> (vars: v1, v2)`
+  - Variables are extracted from **title + description** (root only).
+
+**`template show`**:
+- Resolves ID (partial OK) before loading.
+- Loads a **subgraph** of the template:
+  - Root epic + descendants.
+  - Child discovery uses both:
+    - parent-child dependencies (`dep type = parent_child`),
+    - hierarchical IDs (`parent.N`).
+- Dependencies included only when **both endpoints** are inside the subgraph.
+- JSON output:
+```json
+{
+  "root": { /* Issue */ },
+  "issues": [ /* Issue */ ],
+  "dependencies": [ /* Dependency */ ],
+  "variables": ["var1","var2"]
+}
+```
+- Human output shows:
+  - Template title, ID, issue count
+  - Variables list (if any)
+  - Tree structure (printed with a depth-first tree renderer)
+
+**`template instantiate`**:
+- Requires all variables used in the template subgraph to be supplied via `--var`.
+  Missing vars cause an error with a suggested flag syntax.
+- `--dry-run`: prints a preview list (with substituted titles) and variables.
+- `--assignee`: assigns the **root epic** to the named assignee.
+- JSON output:
+```json
+{
+  "new_epic_id": "bd-new123",
+  "id_mapping": { "bd-old1": "bd-new1" },
+  "created": 12
+}
+```
+- Human output:
+  - `✓ Created <n> issues from template`
+  - `  New epic: <id>`
+
+**Port note (classic scope)**:
+- This is **deprecated upstream** and intertwined with formula/mol systems.
+- Recommendation for `br` v1: **exclude** unless explicitly requested; if included,
+  keep it label-based only (no mol/wisp/daemon).
 
 ---
 
