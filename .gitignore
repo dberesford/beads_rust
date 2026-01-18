@@ -31,3 +31,9 @@ Thumbs.db
 # Local agent/session artifacts
 SESSION_STATUS.md
 a.out
+
+# Temp build directories (never commit)
+target.old*/
+target_new/
+temp_test*/
+rustc-ice-*.txt
