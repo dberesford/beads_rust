@@ -678,7 +678,8 @@ main() {
     echo ""
 }
 
-# Run main if script is executed (not sourced)
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+# Run main - handles both direct execution and piped input (curl | bash)
+# Use ${BASH_SOURCE[0]:-} to handle unbound variable when piped
+if [[ -z "${BASH_SOURCE[0]:-}" ]] || [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main "$@"
 fi
