@@ -22,6 +22,24 @@ use std::time::{Duration, Instant, SystemTime};
 use tempfile::TempDir;
 use tracing::info;
 
+/// Check if the `bd` (Go beads) binary is available on the system.
+fn bd_available() -> bool {
+    std::process::Command::new("bd")
+        .arg("version")
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
+/// Skip test if bd binary is not available (used in CI where only br is built)
+macro_rules! skip_if_no_bd {
+    () => {
+        if !bd_available() {
+            eprintln!("Skipping test: 'bd' binary not found (expected in CI)");
+            return;
+        }
+    };
+}
+
 /// Output from running a command
 #[derive(Debug)]
 pub struct CmdOutput {
@@ -1171,6 +1189,7 @@ pub mod scenarios {
 
 #[test]
 fn conformance_init() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_init test");
 
@@ -1195,6 +1214,7 @@ fn conformance_init() {
 
 #[test]
 fn conformance_create_basic() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_create_basic test");
 
@@ -1236,6 +1256,7 @@ fn conformance_create_basic() {
 
 #[test]
 fn conformance_create_with_type_and_priority() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_create_with_type_and_priority test");
 
@@ -1302,6 +1323,7 @@ fn conformance_create_with_type_and_priority() {
 
 #[test]
 fn conformance_list_empty() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_list_empty test");
 
@@ -1345,6 +1367,7 @@ fn conformance_list_empty() {
 
 #[test]
 fn conformance_list_with_issues() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_list_with_issues test");
 
@@ -1393,6 +1416,7 @@ fn conformance_list_with_issues() {
 
 #[test]
 fn conformance_ready_empty() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_ready_empty test");
 
@@ -1433,6 +1457,7 @@ fn conformance_ready_empty() {
 
 #[test]
 fn conformance_ready_with_issues() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_ready_with_issues test");
 
@@ -1478,6 +1503,7 @@ fn conformance_ready_with_issues() {
 
 #[test]
 fn conformance_ready_with_deps() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_ready_with_deps test");
 
@@ -1580,6 +1606,7 @@ fn conformance_ready_with_deps() {
 
 #[test]
 fn conformance_ready_limit() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_ready_limit test");
 
@@ -1623,6 +1650,7 @@ fn conformance_ready_limit() {
 
 #[test]
 fn conformance_ready_filter_type() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_ready_filter_type test");
 
@@ -1695,6 +1723,7 @@ fn conformance_ready_filter_type() {
 
 #[test]
 fn conformance_ready_filter_assignee() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_ready_filter_assignee test");
 
@@ -1767,6 +1796,7 @@ fn conformance_ready_filter_assignee() {
 
 #[test]
 fn conformance_ready_priority_order() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_ready_priority_order test");
 
@@ -1867,6 +1897,7 @@ fn conformance_ready_priority_order() {
 
 #[test]
 fn conformance_ready_json_shape() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_ready_json_shape test");
 
@@ -1900,6 +1931,7 @@ fn conformance_ready_json_shape() {
 
 #[test]
 fn conformance_blocked_empty() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_blocked_empty test");
 
@@ -1937,6 +1969,7 @@ fn conformance_blocked_empty() {
 
 #[test]
 fn conformance_blocked_with_deps() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_blocked_with_deps test");
 
@@ -2031,6 +2064,7 @@ fn conformance_blocked_with_deps() {
 
 #[test]
 fn conformance_blocked_shows_blockers() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_blocked_shows_blockers test");
 
@@ -2125,6 +2159,7 @@ fn conformance_blocked_shows_blockers() {
 
 #[test]
 fn conformance_blocked_multiple_blockers() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_blocked_multiple_blockers test");
 
@@ -2250,6 +2285,7 @@ fn conformance_blocked_multiple_blockers() {
 
 #[test]
 fn conformance_blocked_chain() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_blocked_chain test");
 
@@ -2362,6 +2398,7 @@ fn conformance_blocked_chain() {
 
 #[test]
 fn conformance_blocked_json_shape() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_blocked_json_shape test");
 
@@ -2450,6 +2487,7 @@ fn conformance_blocked_json_shape() {
 
 #[test]
 fn conformance_stats() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_stats test");
 
@@ -2500,6 +2538,7 @@ fn conformance_stats() {
 
 #[test]
 fn conformance_sync_flush_only() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_flush_only test");
 
@@ -2554,6 +2593,7 @@ fn conformance_sync_flush_only() {
 
 #[test]
 fn conformance_dependency_blocking() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dependency_blocking test");
 
@@ -2658,6 +2698,7 @@ fn conformance_dependency_blocking() {
 
 #[test]
 fn conformance_close_issue() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_close_issue test");
 
@@ -2749,6 +2790,7 @@ fn conformance_close_issue() {
 
 #[test]
 fn conformance_update_issue() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_update_issue test");
 
@@ -2824,6 +2866,7 @@ fn conformance_update_issue() {
 
 #[test]
 fn conformance_reopen_basic() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_reopen_basic test");
 
@@ -2897,6 +2940,7 @@ fn conformance_reopen_basic() {
 
 #[test]
 fn conformance_list_by_type() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_list_by_type test");
 
@@ -2955,6 +2999,7 @@ fn conformance_list_by_type() {
 
 #[test]
 fn conformance_show_basic() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_show_basic test");
 
@@ -3042,6 +3087,7 @@ fn conformance_show_basic() {
 
 #[test]
 fn conformance_search_basic() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_search_basic test");
 
@@ -3094,6 +3140,7 @@ fn conformance_search_basic() {
 
 #[test]
 fn conformance_label_basic() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_label_basic test");
 
@@ -3169,6 +3216,7 @@ fn conformance_label_basic() {
 
 #[test]
 fn conformance_dep_list() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_list test");
 
@@ -3260,6 +3308,7 @@ fn conformance_dep_list() {
 
 #[test]
 fn conformance_count_basic() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_count_basic test");
 
@@ -3335,6 +3384,7 @@ fn conformance_count_basic() {
 
 #[test]
 fn conformance_delete_issue() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_delete_issue test");
 
@@ -3404,6 +3454,7 @@ fn conformance_delete_issue() {
 #[test]
 #[ignore]
 fn conformance_delete_creates_tombstone() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_delete_creates_tombstone test");
 
@@ -3483,6 +3534,7 @@ fn conformance_delete_creates_tombstone() {
 
 #[test]
 fn conformance_delete_already_deleted_error() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_delete_already_deleted_error test");
 
@@ -3532,6 +3584,7 @@ fn conformance_delete_already_deleted_error() {
 
 #[test]
 fn conformance_delete_with_dependents() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_delete_with_dependents test");
 
@@ -3576,6 +3629,7 @@ fn conformance_delete_with_dependents() {
 
 #[test]
 fn conformance_dep_remove() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_remove test");
 
@@ -3692,6 +3746,7 @@ fn conformance_dep_remove() {
 
 #[test]
 fn conformance_sync_import() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_import test");
 
@@ -3762,6 +3817,7 @@ fn conformance_sync_import() {
 
 #[test]
 fn conformance_sync_roundtrip() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_roundtrip test");
 
@@ -3903,6 +3959,7 @@ fn conformance_sync_roundtrip() {
 
 #[test]
 fn conformance_sync_flush_empty_db() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_flush_empty_db test");
 
@@ -3948,6 +4005,7 @@ fn conformance_sync_flush_empty_db() {
 
 #[test]
 fn conformance_sync_flush_single_issue() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_flush_single_issue test");
 
@@ -3994,6 +4052,7 @@ fn conformance_sync_flush_single_issue() {
 
 #[test]
 fn conformance_sync_flush_many_issues() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_flush_many_issues test");
 
@@ -4041,6 +4100,7 @@ fn conformance_sync_flush_many_issues() {
 
 #[test]
 fn conformance_sync_flush_with_dependencies() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_flush_with_dependencies test");
 
@@ -4096,6 +4156,7 @@ fn conformance_sync_flush_with_dependencies() {
 
 #[test]
 fn conformance_sync_flush_with_labels() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_flush_with_labels test");
 
@@ -4145,6 +4206,7 @@ fn conformance_sync_flush_with_labels() {
 
 #[test]
 fn conformance_sync_flush_jsonl_line_format() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_flush_jsonl_line_format test");
 
@@ -4222,6 +4284,7 @@ fn conformance_sync_flush_jsonl_line_format() {
 
 #[test]
 fn conformance_sync_flush_with_comments() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_flush_with_comments test");
 
@@ -4264,6 +4327,7 @@ fn conformance_sync_flush_with_comments() {
 
 #[test]
 fn conformance_sync_import_empty_jsonl() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_import_empty_jsonl test");
 
@@ -4314,6 +4378,7 @@ fn conformance_sync_import_empty_jsonl() {
 
 #[test]
 fn conformance_sync_import_single_issue() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_import_single_issue test");
 
@@ -4366,6 +4431,7 @@ fn conformance_sync_import_single_issue() {
 
 #[test]
 fn conformance_sync_import_many_issues() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_import_many_issues test");
 
@@ -4429,6 +4495,7 @@ fn conformance_sync_import_many_issues() {
 
 #[test]
 fn conformance_sync_import_updates_existing() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_import_updates_existing test");
 
@@ -4483,6 +4550,7 @@ fn conformance_sync_import_updates_existing() {
 
 #[test]
 fn conformance_sync_roundtrip_preserves_all_fields() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_roundtrip_preserves_all_fields test");
 
@@ -4560,6 +4628,7 @@ fn conformance_sync_roundtrip_preserves_all_fields() {
 
 #[test]
 fn conformance_sync_roundtrip_unicode() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_roundtrip_unicode test");
 
@@ -4613,6 +4682,7 @@ fn conformance_sync_roundtrip_unicode() {
 
 #[test]
 fn conformance_sync_roundtrip_special_chars() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_roundtrip_special_chars test");
 
@@ -4656,6 +4726,7 @@ fn conformance_sync_roundtrip_special_chars() {
 
 #[test]
 fn conformance_sync_status_clean() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_status_clean test");
 
@@ -4683,6 +4754,7 @@ fn conformance_sync_status_clean() {
 
 #[test]
 fn conformance_sync_status_json_output() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_status_json_output test");
 
@@ -4714,6 +4786,7 @@ fn conformance_sync_status_json_output() {
 
 #[test]
 fn conformance_sync_large_description() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_large_description test");
 
@@ -4769,6 +4842,7 @@ fn conformance_sync_large_description() {
 
 #[test]
 fn conformance_sync_tombstones() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_tombstones test");
 
@@ -4808,6 +4882,7 @@ fn conformance_sync_tombstones() {
 
 #[test]
 fn conformance_init_reinit() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_init_reinit test");
 
@@ -4844,6 +4919,7 @@ fn conformance_init_reinit() {
 
 #[test]
 fn conformance_init_existing_db() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_init_existing_db test");
 
@@ -4878,6 +4954,7 @@ fn conformance_init_existing_db() {
 
 #[test]
 fn conformance_init_creates_beads_dir() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_init_creates_beads_dir test");
 
@@ -4914,6 +4991,7 @@ fn conformance_init_creates_beads_dir() {
 
 #[test]
 fn conformance_init_json_output() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_init_json_output test");
 
@@ -4956,6 +5034,7 @@ fn conformance_init_json_output() {
 
 #[test]
 fn conformance_init_config() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_init_config test");
 
@@ -5002,6 +5081,7 @@ fn conformance_init_config() {
 
 #[test]
 fn conformance_init_metadata() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_init_metadata test");
 
@@ -5035,6 +5115,7 @@ fn conformance_init_metadata() {
 
 #[test]
 fn conformance_create_all_types() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_create_all_types test");
 
@@ -5091,6 +5172,7 @@ fn conformance_create_all_types() {
 
 #[test]
 fn conformance_create_all_priorities() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_create_all_priorities test");
 
@@ -5147,6 +5229,7 @@ fn conformance_create_all_priorities() {
 
 #[test]
 fn conformance_create_with_assignee() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_create_with_assignee test");
 
@@ -5197,6 +5280,7 @@ fn conformance_create_with_assignee() {
 
 #[test]
 fn conformance_create_with_description() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_create_with_description test");
 
@@ -5248,6 +5332,7 @@ fn conformance_create_with_description() {
 
 #[test]
 fn conformance_create_unicode_title() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_create_unicode_title test");
 
@@ -5304,6 +5389,7 @@ fn conformance_create_unicode_title() {
 
 #[test]
 fn conformance_create_special_chars() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_create_special_chars test");
 
@@ -5360,6 +5446,7 @@ fn conformance_create_special_chars() {
 
 #[test]
 fn conformance_create_very_long_title() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_create_very_long_title test");
 
@@ -5408,6 +5495,7 @@ fn conformance_create_very_long_title() {
 
 #[test]
 fn conformance_create_empty_title_error() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_create_empty_title_error test");
 
@@ -5434,6 +5522,7 @@ fn conformance_create_empty_title_error() {
 
 #[test]
 fn conformance_create_with_external_ref() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_create_with_external_ref test");
 
@@ -5496,6 +5585,7 @@ fn conformance_create_with_external_ref() {
 
 #[test]
 fn conformance_create_invalid_priority_error() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_create_invalid_priority_error test");
 
@@ -5528,6 +5618,7 @@ fn conformance_create_invalid_priority_error() {
 
 #[test]
 fn conformance_list_filter_status_closed() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_list_filter_status_closed test");
 
@@ -5590,6 +5681,7 @@ fn conformance_list_filter_status_closed() {
 
 #[test]
 fn conformance_list_filter_assignee() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_list_filter_assignee test");
 
@@ -5655,6 +5747,7 @@ fn conformance_list_filter_assignee() {
 
 #[test]
 fn conformance_list_limit() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_list_limit test");
 
@@ -5703,6 +5796,7 @@ fn conformance_list_limit() {
 
 #[test]
 fn conformance_list_filter_status_open() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_list_filter_status_open test");
 
@@ -5767,6 +5861,7 @@ fn conformance_list_filter_status_open() {
 
 #[test]
 fn conformance_list_filter_status_in_progress() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_list_filter_status_in_progress test");
 
@@ -5835,6 +5930,7 @@ fn conformance_list_filter_status_in_progress() {
 
 #[test]
 fn conformance_list_filter_priority_range() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_list_filter_priority_range test");
 
@@ -5903,6 +5999,7 @@ fn conformance_list_filter_priority_range() {
 
 #[test]
 fn conformance_list_filter_label() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_list_filter_label test");
 
@@ -5968,6 +6065,7 @@ fn conformance_list_filter_label() {
 
 #[test]
 fn conformance_list_filter_multiple() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_list_filter_multiple test");
 
@@ -6063,6 +6161,7 @@ fn conformance_list_filter_multiple() {
 
 #[test]
 fn conformance_list_sort_priority() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_list_sort_priority test");
 
@@ -6122,6 +6221,7 @@ fn conformance_list_sort_priority() {
 
 #[test]
 fn conformance_list_sort_created() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_list_sort_created test");
 
@@ -6183,6 +6283,7 @@ fn conformance_list_sort_created() {
 
 #[test]
 fn conformance_list_json_structure() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_list_json_structure test");
 
@@ -6230,6 +6331,7 @@ fn conformance_list_json_structure() {
 
 #[test]
 fn conformance_show_partial_id() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_show_partial_id test");
 
@@ -6297,6 +6399,7 @@ fn conformance_show_partial_id() {
 
 #[test]
 fn conformance_show_nonexistent_error() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_show_nonexistent_error test");
 
@@ -6318,6 +6421,7 @@ fn conformance_show_nonexistent_error() {
 
 #[test]
 fn conformance_show_full_details() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_show_full_details test");
 
@@ -6447,6 +6551,7 @@ fn conformance_show_full_details() {
 
 #[test]
 fn conformance_show_with_dependencies() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_show_with_dependencies test");
 
@@ -6539,6 +6644,7 @@ fn conformance_show_with_dependencies() {
 
 #[test]
 fn conformance_show_with_comments() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_show_with_comments test");
 
@@ -6619,6 +6725,7 @@ fn conformance_show_with_comments() {
 #[test]
 #[ignore]
 fn conformance_show_deleted_issue() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_show_deleted_issue test");
 
@@ -6698,6 +6805,7 @@ fn conformance_show_deleted_issue() {
 
 #[test]
 fn conformance_update_title() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_update_title test");
 
@@ -6770,6 +6878,7 @@ fn conformance_update_title() {
 
 #[test]
 fn conformance_update_assignee() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_update_assignee test");
 
@@ -6842,6 +6951,7 @@ fn conformance_update_assignee() {
 
 #[test]
 fn conformance_update_status() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_update_status test");
 
@@ -6918,6 +7028,7 @@ fn conformance_update_status() {
 
 #[test]
 fn conformance_update_multiple_fields() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_update_multiple_fields test");
 
@@ -7018,6 +7129,7 @@ fn conformance_update_multiple_fields() {
 
 #[test]
 fn conformance_update_clear_assignee() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_update_clear_assignee test");
 
@@ -7102,6 +7214,7 @@ fn conformance_update_clear_assignee() {
 
 #[test]
 fn conformance_update_preserves_other_fields() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_update_preserves_other_fields test");
 
@@ -7191,6 +7304,7 @@ fn conformance_update_preserves_other_fields() {
 
 #[test]
 fn conformance_update_nonexistent_error() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_update_nonexistent_error test");
 
@@ -7218,6 +7332,7 @@ fn conformance_update_nonexistent_error() {
 
 #[test]
 fn conformance_close_with_reason() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_close_with_reason test");
 
@@ -7321,6 +7436,7 @@ fn extract_checks_len(json_str: &str) -> usize {
 
 #[test]
 fn conformance_dep_add_basic() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_add_basic test");
 
@@ -7387,6 +7503,7 @@ fn conformance_dep_add_basic() {
 
 #[test]
 fn conformance_dep_add_all_types() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_add_all_types test");
 
@@ -7466,6 +7583,7 @@ fn conformance_dep_add_all_types() {
 
 #[test]
 fn conformance_dep_add_duplicate() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_add_duplicate test");
 
@@ -7517,6 +7635,7 @@ fn conformance_dep_add_duplicate() {
 
 #[test]
 fn conformance_dep_add_self_reference_error() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_add_self_reference_error test");
 
@@ -7549,6 +7668,7 @@ fn conformance_dep_add_self_reference_error() {
 
 #[test]
 fn conformance_dep_add_cycle_detection() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_add_cycle_detection test");
 
@@ -7593,6 +7713,7 @@ fn conformance_dep_add_cycle_detection() {
 
 #[test]
 fn conformance_dep_add_transitive_cycle() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_add_transitive_cycle test");
 
@@ -7646,6 +7767,7 @@ fn conformance_dep_add_transitive_cycle() {
 
 #[test]
 fn conformance_dep_add_nonexistent_source_error() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_add_nonexistent_source_error test");
 
@@ -7684,6 +7806,7 @@ fn conformance_dep_add_nonexistent_source_error() {
 
 #[test]
 fn conformance_dep_add_nonexistent_target_error() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_add_nonexistent_target_error test");
 
@@ -7726,6 +7849,7 @@ fn conformance_dep_add_nonexistent_target_error() {
 
 #[test]
 fn conformance_dep_remove_basic_expanded() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_remove_basic_expanded test");
 
@@ -7784,6 +7908,7 @@ fn conformance_dep_remove_basic_expanded() {
 
 #[test]
 fn conformance_dep_remove_nonexistent() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_remove_nonexistent test");
 
@@ -7833,6 +7958,7 @@ fn conformance_dep_remove_nonexistent() {
 
 #[test]
 fn conformance_dep_remove_unblocks_issue() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_remove_unblocks_issue test");
 
@@ -7920,6 +8046,7 @@ fn conformance_dep_remove_unblocks_issue() {
 
 #[test]
 fn conformance_dep_remove_preserves_other_deps() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_remove_preserves_other_deps test");
 
@@ -8007,6 +8134,7 @@ fn conformance_dep_remove_preserves_other_deps() {
 
 #[test]
 fn conformance_dep_list_basic_expanded() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_list_basic_expanded test");
 
@@ -8052,6 +8180,7 @@ fn conformance_dep_list_basic_expanded() {
 
 #[test]
 fn conformance_dep_list_empty() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_list_empty test");
 
@@ -8093,6 +8222,7 @@ fn conformance_dep_list_empty() {
 
 #[test]
 fn conformance_dep_list_by_type() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_list_by_type test");
 
@@ -8164,6 +8294,7 @@ fn conformance_dep_list_by_type() {
 
 #[test]
 fn conformance_dep_list_json_structure() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_list_json_structure test");
 
@@ -8222,6 +8353,7 @@ fn conformance_dep_list_json_structure() {
 
 #[test]
 fn conformance_dep_tree_basic() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_tree_basic test");
 
@@ -8274,6 +8406,7 @@ fn conformance_dep_tree_basic() {
 
 #[test]
 fn conformance_dep_tree_deep() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_tree_deep test");
 
@@ -8324,6 +8457,7 @@ fn conformance_dep_tree_deep() {
 
 #[test]
 fn conformance_dep_tree_empty() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_tree_empty test");
 
@@ -8349,6 +8483,7 @@ fn conformance_dep_tree_empty() {
 
 #[test]
 fn conformance_dep_tree_json() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_tree_json test");
 
@@ -8405,6 +8540,7 @@ fn conformance_dep_tree_json() {
 
 #[test]
 fn conformance_dep_cycles_none() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_cycles_none test");
 
@@ -8458,6 +8594,7 @@ fn conformance_dep_cycles_none() {
 
 #[test]
 fn conformance_dep_cycles_simple() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_cycles_simple test");
 
@@ -8530,6 +8667,7 @@ fn conformance_dep_cycles_simple() {
 
 #[test]
 fn conformance_dep_cycles_complex() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_cycles_complex test");
 
@@ -8613,6 +8751,7 @@ fn conformance_dep_cycles_complex() {
 
 #[test]
 fn conformance_dep_cycles_json() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_dep_cycles_json test");
 
@@ -8659,6 +8798,7 @@ fn conformance_dep_cycles_json() {
 
 #[test]
 fn conformance_stats_empty() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_stats_empty test");
 
@@ -8696,6 +8836,7 @@ fn conformance_stats_empty() {
 
 #[test]
 fn conformance_stats_mixed() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_stats_mixed test");
 
@@ -8747,6 +8888,7 @@ fn conformance_stats_mixed() {
 
 #[test]
 fn conformance_stats_with_deps() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_stats_with_deps test");
 
@@ -8792,6 +8934,7 @@ fn conformance_stats_with_deps() {
 
 #[test]
 fn conformance_stats_json_shape() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_stats_json_shape test");
 
@@ -8833,6 +8976,7 @@ fn conformance_stats_json_shape() {
 
 #[test]
 fn conformance_count_by_status() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_count_by_status test");
 
@@ -8882,6 +9026,7 @@ fn conformance_count_by_status() {
 
 #[test]
 fn conformance_count_by_type() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_count_by_type test");
 
@@ -8924,6 +9069,7 @@ fn conformance_count_by_type() {
 
 #[test]
 fn conformance_count_by_priority() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_count_by_priority test");
 
@@ -8966,6 +9112,7 @@ fn conformance_count_by_priority() {
 
 #[test]
 fn conformance_count_by_assignee() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_count_by_assignee test");
 
@@ -9020,6 +9167,7 @@ fn conformance_count_by_assignee() {
 
 #[test]
 fn conformance_count_json_shape() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_count_json_shape test");
 
@@ -9046,6 +9194,7 @@ fn conformance_count_json_shape() {
 
 #[test]
 fn conformance_count_empty() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_count_empty test");
 
@@ -9080,6 +9229,7 @@ fn conformance_count_empty() {
 
 #[test]
 fn conformance_stale_default() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_stale_default test");
 
@@ -9117,6 +9267,7 @@ fn conformance_stale_default() {
 #[test]
 #[ignore]
 fn conformance_stale_custom_days() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_stale_custom_days test");
 
@@ -9152,6 +9303,7 @@ fn conformance_stale_custom_days() {
 
 #[test]
 fn conformance_stale_empty() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_stale_empty test");
 
@@ -9184,6 +9336,7 @@ fn conformance_stale_empty() {
 
 #[test]
 fn conformance_stale_excludes_closed() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_stale_excludes_closed test");
 
@@ -9245,6 +9398,7 @@ fn conformance_stale_excludes_closed() {
 
 #[test]
 fn conformance_stale_json_shape() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_stale_json_shape test");
 
@@ -9274,6 +9428,7 @@ fn conformance_stale_json_shape() {
 #[test]
 #[ignore]
 fn conformance_doctor_healthy() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_doctor_healthy test");
 
@@ -9312,6 +9467,7 @@ fn conformance_doctor_healthy() {
 #[test]
 #[ignore]
 fn conformance_doctor_json_shape() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_doctor_json_shape test");
 
@@ -9362,6 +9518,7 @@ fn conformance_doctor_json_shape() {
 #[test]
 #[ignore]
 fn conformance_doctor_with_issues() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_doctor_with_issues test");
 
@@ -9411,6 +9568,7 @@ fn conformance_doctor_with_issues() {
 
 #[test]
 fn conformance_version_text() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_version_text test");
 
@@ -9448,6 +9606,7 @@ fn conformance_version_text() {
 
 #[test]
 fn conformance_version_json() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_version_json test");
 
@@ -9484,6 +9643,7 @@ fn conformance_version_json() {
 
 #[test]
 fn conformance_version_fields() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_version_fields test");
 
@@ -9520,6 +9680,7 @@ fn conformance_version_fields() {
 
 #[test]
 fn conformance_config_list() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_config_list test");
 
@@ -9559,6 +9720,7 @@ fn conformance_config_list() {
 #[test]
 #[ignore]
 fn conformance_config_get() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_config_get test");
 
@@ -9604,6 +9766,7 @@ fn conformance_config_get() {
 
 #[test]
 fn conformance_config_set() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_config_set test");
 
@@ -9631,6 +9794,7 @@ fn conformance_config_set() {
 #[test]
 #[ignore]
 fn conformance_config_get_after_set() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_config_get_after_set test");
 
@@ -9676,6 +9840,7 @@ fn conformance_config_get_after_set() {
 
 #[test]
 fn conformance_config_json_shape() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_config_json_shape test");
 
@@ -9704,6 +9869,7 @@ fn conformance_config_json_shape() {
 
 #[test]
 fn conformance_config_defaults() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_config_defaults test");
 
@@ -9748,6 +9914,7 @@ fn conformance_config_defaults() {
 #[test]
 #[ignore]
 fn conformance_config_invalid_key() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_config_invalid_key test");
 
@@ -9786,6 +9953,7 @@ fn conformance_config_invalid_key() {
 
 #[test]
 fn conformance_close_already_closed() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_close_already_closed test");
 
@@ -9818,6 +9986,7 @@ fn conformance_close_already_closed() {
 
 #[test]
 fn conformance_close_sets_closed_at() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_close_sets_closed_at test");
 
@@ -9870,6 +10039,7 @@ fn conformance_close_sets_closed_at() {
 
 #[test]
 fn conformance_close_blocked_issue() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_close_blocked_issue test");
 
@@ -9906,6 +10076,7 @@ fn conformance_close_blocked_issue() {
 
 #[test]
 fn conformance_close_updates_dependents() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_close_updates_dependents test");
 
@@ -9949,6 +10120,7 @@ fn conformance_close_updates_dependents() {
 
 #[test]
 fn conformance_close_preserves_fields() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_close_preserves_fields test");
 
@@ -10038,6 +10210,7 @@ fn conformance_close_preserves_fields() {
 
 #[test]
 fn conformance_reopen_clears_closed_at() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_reopen_clears_closed_at test");
 
@@ -10092,6 +10265,7 @@ fn conformance_reopen_clears_closed_at() {
 
 #[test]
 fn conformance_reopen_preserves_fields() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_reopen_preserves_fields test");
 
@@ -10172,6 +10346,7 @@ fn conformance_reopen_preserves_fields() {
 
 #[test]
 fn conformance_reopen_never_closed_error() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_reopen_never_closed_error test");
 
@@ -10201,6 +10376,7 @@ fn conformance_reopen_never_closed_error() {
 
 #[test]
 fn conformance_reopen_tombstone_error() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_reopen_tombstone_error test");
 
@@ -10237,6 +10413,7 @@ fn conformance_reopen_tombstone_error() {
 
 #[test]
 fn conformance_epic_status_empty() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_epic_status_empty test");
 
@@ -10270,6 +10447,7 @@ fn conformance_epic_status_empty() {
 
 #[test]
 fn conformance_epic_status_with_epic() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_epic_status_with_epic test");
 
@@ -10323,6 +10501,7 @@ fn conformance_epic_status_with_epic() {
 
 #[test]
 fn conformance_epic_status_with_children() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_epic_status_with_children test");
 
@@ -10399,6 +10578,7 @@ fn conformance_epic_status_with_children() {
 
 #[test]
 fn conformance_epic_close_eligible_open_children() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_epic_close_eligible_open_children test");
 
@@ -10492,6 +10672,7 @@ fn conformance_epic_close_eligible_open_children() {
 #[test]
 #[ignore = "br parent-child dependency blocks children; bd does not"]
 fn conformance_epic_close_eligible_all_closed() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_epic_close_eligible_all_closed test");
 
@@ -10583,6 +10764,7 @@ fn conformance_epic_close_eligible_all_closed() {
 
 #[test]
 fn conformance_epic_status_eligible_only() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_epic_status_eligible_only test");
 
@@ -10675,6 +10857,7 @@ fn conformance_epic_status_eligible_only() {
 
 #[test]
 fn conformance_epic_status_json_shape() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_epic_status_json_shape test");
 
@@ -10720,6 +10903,7 @@ fn conformance_epic_status_json_shape() {
 
 #[test]
 fn conformance_epic_nested() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_epic_nested test");
 
@@ -10800,6 +10984,7 @@ fn conformance_epic_nested() {
 
 #[test]
 fn conformance_graph_no_deps() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_graph_no_deps test");
 
@@ -10828,6 +11013,7 @@ fn conformance_graph_no_deps() {
 
 #[test]
 fn conformance_graph_simple_dep() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_graph_simple_dep test");
 
@@ -10865,6 +11051,7 @@ fn conformance_graph_simple_dep() {
 
 #[test]
 fn conformance_graph_complex_deps() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_graph_complex_deps test");
 
@@ -10915,6 +11102,7 @@ fn conformance_graph_complex_deps() {
 
 #[test]
 fn conformance_graph_all_flag() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_graph_all_flag test");
 
@@ -10942,6 +11130,7 @@ fn conformance_graph_all_flag() {
 
 #[test]
 fn conformance_graph_compact_flag() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_graph_compact_flag test");
 
@@ -10989,6 +11178,7 @@ fn conformance_graph_compact_flag() {
 
 #[test]
 fn conformance_graph_json_shape() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_graph_json_shape test");
 
@@ -11041,6 +11231,7 @@ fn conformance_graph_json_shape() {
 
 #[test]
 fn conformance_audit_record_llm_call() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_audit_record_llm_call test");
 
@@ -11103,6 +11294,7 @@ fn conformance_audit_record_llm_call() {
 
 #[test]
 fn conformance_audit_record_tool_call() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_audit_record_tool_call test");
 
@@ -11161,6 +11353,7 @@ fn conformance_audit_record_tool_call() {
 
 #[test]
 fn conformance_audit_record_with_issue() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_audit_record_with_issue test");
 
@@ -11223,6 +11416,7 @@ fn conformance_audit_record_with_issue() {
 
 #[test]
 fn conformance_audit_label() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_audit_label test");
 
@@ -11308,6 +11502,7 @@ fn conformance_audit_label() {
 
 #[test]
 fn conformance_audit_record_with_error() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_audit_record_with_error test");
 
@@ -11389,6 +11584,7 @@ fn extract_audit_entry_id(output: &str) -> String {
 
 #[test]
 fn conformance_q_basic() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_q_basic test");
 
@@ -11415,6 +11611,7 @@ fn conformance_q_basic() {
 
 #[test]
 fn conformance_q_with_priority() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_q_with_priority test");
 
@@ -11440,6 +11637,7 @@ fn conformance_q_with_priority() {
 
 #[test]
 fn conformance_q_with_type() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_q_with_type test");
 
@@ -11465,6 +11663,7 @@ fn conformance_q_with_type() {
 
 #[test]
 fn conformance_q_creates_issue() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_q_creates_issue test");
 
@@ -11497,6 +11696,7 @@ fn conformance_q_creates_issue() {
 
 #[test]
 fn conformance_q_id_in_list() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_q_id_in_list test");
 
@@ -11553,6 +11753,7 @@ fn conformance_q_id_in_list() {
 
 #[test]
 fn conformance_q_error_no_title() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_q_error_no_title test");
 
@@ -11574,6 +11775,7 @@ fn conformance_q_error_no_title() {
 
 #[test]
 fn conformance_lint_empty() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_lint_empty test");
 
@@ -11600,6 +11802,7 @@ fn conformance_lint_empty() {
 
 #[test]
 fn conformance_lint_with_issues() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_lint_with_issues test");
 
@@ -11629,6 +11832,7 @@ fn conformance_lint_with_issues() {
 
 #[test]
 fn conformance_lint_by_type() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_lint_by_type test");
 
@@ -11659,6 +11863,7 @@ fn conformance_lint_by_type() {
 
 #[test]
 fn conformance_lint_json_shape() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_lint_json_shape test");
 
@@ -11685,6 +11890,7 @@ fn conformance_lint_json_shape() {
 
 #[test]
 fn conformance_lint_exit_code() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_lint_exit_code test");
 
@@ -11716,6 +11922,7 @@ fn conformance_lint_exit_code() {
 
 #[test]
 fn conformance_defer_basic() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_defer_basic test");
 
@@ -11749,6 +11956,7 @@ fn conformance_defer_basic() {
 
 #[test]
 fn conformance_defer_excludes_from_ready() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_defer_excludes_from_ready test");
 
@@ -11790,6 +11998,7 @@ fn conformance_defer_excludes_from_ready() {
 
 #[test]
 fn conformance_undefer_basic() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_undefer_basic test");
 
@@ -11825,6 +12034,7 @@ fn conformance_undefer_basic() {
 
 #[test]
 fn conformance_undefer_restores_ready() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_undefer_restores_ready test");
 
@@ -11859,6 +12069,7 @@ fn conformance_undefer_restores_ready() {
 
 #[test]
 fn conformance_history_list_empty() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_history_list_empty test");
 
@@ -11879,6 +12090,7 @@ fn conformance_history_list_empty() {
 
 #[test]
 fn conformance_history_list_after_sync() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_history_list_after_sync test");
 
@@ -11903,6 +12115,7 @@ fn conformance_history_list_after_sync() {
 
 #[test]
 fn conformance_history_json_shape() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_history_json_shape test");
 
@@ -11940,6 +12153,7 @@ fn conformance_history_json_shape() {
 
 #[test]
 fn conformance_orphans_empty() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_orphans_empty test");
 
@@ -11965,6 +12179,7 @@ fn conformance_orphans_empty() {
 
 #[test]
 fn conformance_orphans_with_issues() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_orphans_with_issues test");
 
@@ -11993,6 +12208,7 @@ fn conformance_orphans_with_issues() {
 
 #[test]
 fn conformance_orphans_json_shape() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_orphans_json_shape test");
 
@@ -12020,6 +12236,7 @@ fn conformance_orphans_json_shape() {
 
 #[test]
 fn conformance_changelog_empty() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_changelog_empty test");
 
@@ -12040,6 +12257,7 @@ fn conformance_changelog_empty() {
 
 #[test]
 fn conformance_changelog_with_closed() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_changelog_with_closed test");
 
@@ -12065,6 +12283,7 @@ fn conformance_changelog_with_closed() {
 
 #[test]
 fn conformance_changelog_json_shape() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_changelog_json_shape test");
 
@@ -12088,6 +12307,7 @@ fn conformance_changelog_json_shape() {
 
 #[test]
 fn conformance_query_list_empty() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_query_list_empty test");
 
@@ -12108,6 +12328,7 @@ fn conformance_query_list_empty() {
 
 #[test]
 fn conformance_query_save_and_list() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_query_save_and_list test");
 
@@ -12144,6 +12365,7 @@ fn conformance_query_save_and_list() {
 
 #[test]
 fn conformance_query_run() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_query_run test");
 
@@ -12173,6 +12395,7 @@ fn conformance_query_run() {
 
 #[test]
 fn conformance_query_delete() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_query_delete test");
 
@@ -12203,6 +12426,7 @@ fn conformance_query_delete() {
 
 #[test]
 fn conformance_completions_bash() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_completions_bash test");
 
@@ -12239,6 +12463,7 @@ fn conformance_completions_bash() {
 
 #[test]
 fn conformance_completions_zsh() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_completions_zsh test");
 
@@ -12265,6 +12490,7 @@ fn conformance_completions_zsh() {
 
 #[test]
 fn conformance_completions_fish() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_completions_fish test");
 
@@ -12291,6 +12517,7 @@ fn conformance_completions_fish() {
 
 #[test]
 fn conformance_stats_all_fields() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_stats_all_fields test");
     let workspace = ConformanceWorkspace::new();
@@ -12326,6 +12553,7 @@ fn conformance_stats_all_fields() {
 #[test]
 #[ignore]
 fn conformance_stale_all_stale() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_stale_all_stale test");
     let workspace = ConformanceWorkspace::new();
@@ -12352,6 +12580,7 @@ fn conformance_stale_all_stale() {
 
 #[test]
 fn conformance_version_semver() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_version_semver test");
     let workspace = ConformanceWorkspace::new();
@@ -12415,6 +12644,7 @@ fn init_git_repo(dir: &PathBuf) {
 
 #[test]
 fn conformance_sync_base_snapshot_created_after_sync() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_base_snapshot_created_after_sync test");
 
@@ -12500,6 +12730,7 @@ fn conformance_sync_base_snapshot_created_after_sync() {
 
 #[test]
 fn conformance_sync_base_snapshot_content_matches() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_base_snapshot_content_matches test");
 
@@ -12590,6 +12821,7 @@ fn conformance_sync_base_snapshot_content_matches() {
 
 #[test]
 fn conformance_sync_base_snapshot_preserves_issue_state() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_base_snapshot_preserves_issue_state test");
 
@@ -12639,6 +12871,7 @@ fn conformance_sync_base_snapshot_preserves_issue_state() {
 
 #[test]
 fn conformance_sync_import_rejects_conflict_markers() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_import_rejects_conflict_markers test");
 
@@ -12710,6 +12943,7 @@ fn conformance_sync_import_rejects_conflict_markers() {
 
 #[test]
 fn conformance_sync_import_rejects_partial_conflict_markers() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_import_rejects_partial_conflict_markers test");
 
@@ -12757,6 +12991,7 @@ fn conformance_sync_import_rejects_partial_conflict_markers() {
 
 #[test]
 fn conformance_sync_import_rejects_conflict_in_middle() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_import_rejects_conflict_in_middle test");
 
@@ -12826,6 +13061,7 @@ fn conformance_sync_import_rejects_conflict_in_middle() {
 
 #[test]
 fn conformance_sync_import_prefix_mismatch_behavior() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_import_prefix_mismatch_behavior test");
 
@@ -12888,6 +13124,7 @@ fn conformance_sync_import_prefix_mismatch_behavior() {
 
 #[test]
 fn conformance_sync_import_same_prefix_succeeds() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_import_same_prefix_succeeds test");
 
@@ -12956,6 +13193,7 @@ fn conformance_sync_import_same_prefix_succeeds() {
 
 #[test]
 fn conformance_sync_status_shows_prefix_info() {
+    skip_if_no_bd!();
     common::init_test_logging();
     info!("Starting conformance_sync_status_shows_prefix_info test");
 
