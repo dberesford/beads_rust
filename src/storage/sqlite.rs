@@ -6,6 +6,7 @@ use crate::model::{Comment, DependencyType, Event, EventType, Issue, IssueType, 
 use crate::storage::events::get_events;
 use crate::storage::schema::apply_schema;
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
+use tracing::warn;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -820,8 +821,9 @@ impl SqliteStorage {
         }
 
         if let Some(ref title_contains) = filters.title_contains {
-            sql.push_str(" AND title LIKE ?");
-            params.push(Box::new(format!("%{title_contains}%")));
+            sql.push_str(" AND title LIKE ? ESCAPE '\\'");
+            let escaped = escape_like_pattern(title_contains);
+            params.push(Box::new(format!("%{escaped}%")));
         }
 
         if let Some(ts) = filters.updated_before {
@@ -891,6 +893,7 @@ impl SqliteStorage {
     /// # Errors
     ///
     /// Returns an error if the database query fails.
+    #[allow(clippy::too_many_lines)]
     pub fn search_issues(&self, query: &str, filters: &ListFilters) -> Result<Vec<Issue>> {
         let trimmed = query.trim();
         if trimmed.is_empty() {
@@ -911,8 +914,11 @@ impl SqliteStorage {
 
         let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
-        sql.push_str(" AND (title LIKE ? OR description LIKE ? OR id LIKE ?)");
-        let pattern = format!("%{trimmed}%");
+        sql.push_str(
+            " AND (title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\' OR id LIKE ? ESCAPE '\\')",
+        );
+        let escaped = escape_like_pattern(trimmed);
+        let pattern = format!("%{escaped}%");
         params.push(Box::new(pattern.clone()));
         params.push(Box::new(pattern.clone()));
         params.push(Box::new(pattern));
@@ -987,8 +993,9 @@ impl SqliteStorage {
         }
 
         if let Some(ref title_contains) = filters.title_contains {
-            sql.push_str(" AND title LIKE ?");
-            params.push(Box::new(format!("%{title_contains}%")));
+            sql.push_str(" AND title LIKE ? ESCAPE '\\'");
+            let escaped = escape_like_pattern(title_contains);
+            params.push(Box::new(format!("%{escaped}%")));
         }
 
         sql.push_str(" ORDER BY priority ASC, created_at DESC");
@@ -2420,7 +2427,8 @@ impl SqliteStorage {
             .max()
             .unwrap_or(0);
 
-        Ok(max_child + 1)
+        // Use saturating_add to prevent overflow (extremely unlikely but safe)
+        Ok(max_child.saturating_add(1))
     }
 
     /// Count dependencies for multiple issues efficiently.
@@ -3231,7 +3239,21 @@ fn parse_datetime(s: &str) -> DateTime<Utc> {
         return Utc.from_utc_datetime(&naive);
     }
 
+    // Log warning for unparseable dates - helps detect data corruption
+    warn!(
+        datetime_string = %s,
+        "Failed to parse datetime, falling back to current time"
+    );
     Utc::now()
+}
+
+/// Escape special LIKE pattern characters (%, _, \) for literal matching.
+///
+/// Use with `LIKE ? ESCAPE '\\'` in SQL queries.
+fn escape_like_pattern(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 // ============================================================================
