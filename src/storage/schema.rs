@@ -245,6 +245,80 @@ fn column_exists(conn: &Connection, table: &str, column: &str) -> bool {
         .unwrap_or(false)
 }
 
+const ISSUE_COLUMNS: &[(&str, &str)] = &[
+    ("content_hash", "TEXT"),
+    ("description", "TEXT NOT NULL DEFAULT ''"),
+    ("design", "TEXT NOT NULL DEFAULT ''"),
+    ("acceptance_criteria", "TEXT NOT NULL DEFAULT ''"),
+    ("notes", "TEXT NOT NULL DEFAULT ''"),
+    ("status", "TEXT NOT NULL DEFAULT 'open'"),
+    ("priority", "INTEGER NOT NULL DEFAULT 2"),
+    ("issue_type", "TEXT NOT NULL DEFAULT 'task'"),
+    ("assignee", "TEXT"),
+    ("owner", "TEXT DEFAULT ''"),
+    ("estimated_minutes", "INTEGER"),
+    ("created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+    ("created_by", "TEXT DEFAULT ''"),
+    ("updated_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+    ("closed_at", "DATETIME"),
+    ("close_reason", "TEXT DEFAULT ''"),
+    ("closed_by_session", "TEXT DEFAULT ''"),
+    ("due_at", "DATETIME"),
+    ("defer_until", "DATETIME"),
+    ("external_ref", "TEXT"),
+    ("source_system", "TEXT DEFAULT ''"),
+    ("source_repo", "TEXT NOT NULL DEFAULT '.'"),
+    ("deleted_at", "DATETIME"),
+    ("deleted_by", "TEXT DEFAULT ''"),
+    ("delete_reason", "TEXT DEFAULT ''"),
+    ("original_type", "TEXT DEFAULT ''"),
+    ("compaction_level", "INTEGER DEFAULT 0"),
+    ("compacted_at", "DATETIME"),
+    ("compacted_at_commit", "TEXT"),
+    ("original_size", "INTEGER"),
+    ("sender", "TEXT DEFAULT ''"),
+    ("ephemeral", "INTEGER DEFAULT 0"),
+    ("pinned", "INTEGER DEFAULT 0"),
+    ("is_template", "INTEGER DEFAULT 0"),
+];
+
+const DEPENDENCY_COLUMNS: &[(&str, &str)] = &[
+    ("created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+    ("created_by", "TEXT NOT NULL DEFAULT ''"),
+    ("metadata", "TEXT DEFAULT '{}'"),
+    ("thread_id", "TEXT DEFAULT ''"),
+];
+
+const COMMENT_COLUMNS: &[(&str, &str)] = &[
+    ("author", "TEXT NOT NULL DEFAULT ''"),
+    ("text", "TEXT NOT NULL DEFAULT ''"),
+    ("created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+];
+
+const EVENT_COLUMNS: &[(&str, &str)] = &[
+    ("event_type", "TEXT NOT NULL DEFAULT ''"),
+    ("actor", "TEXT NOT NULL DEFAULT ''"),
+    ("old_value", "TEXT"),
+    ("new_value", "TEXT"),
+    ("comment", "TEXT"),
+    ("created_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP"),
+];
+
+fn ensure_columns(conn: &Connection, table: &str, columns: &[(&str, &str)]) -> Result<()> {
+    if !table_exists(conn, table) {
+        return Ok(());
+    }
+
+    for (name, definition) in columns {
+        if !column_exists(conn, table, name) {
+            let sql = format!("ALTER TABLE {table} ADD COLUMN {name} {definition}");
+            conn.execute(&sql, [])?;
+        }
+    }
+
+    Ok(())
+}
+
 /// Run pre-schema migrations to fix incompatible old tables.
 ///
 /// This must run BEFORE `execute_batch(SCHEMA_SQL)` because the schema includes
@@ -262,14 +336,11 @@ fn run_pre_schema_migrations(conn: &Connection) -> Result<()> {
         }
     }
 
-    // Ensure is_template column exists on issues table.
-    // The idx_issues_ready index references this column in its WHERE clause.
-    if table_exists(conn, "issues") && !column_exists(conn, "issues", "is_template") {
-        conn.execute(
-            "ALTER TABLE issues ADD COLUMN is_template INTEGER DEFAULT 0",
-            [],
-        )?;
-    }
+    // Ensure legacy tables have all columns needed for schema indexes and queries.
+    ensure_columns(conn, "issues", ISSUE_COLUMNS)?;
+    ensure_columns(conn, "dependencies", DEPENDENCY_COLUMNS)?;
+    ensure_columns(conn, "comments", COMMENT_COLUMNS)?;
+    ensure_columns(conn, "events", EVENT_COLUMNS)?;
 
     // Always drop idx_issues_ready so SCHEMA_SQL recreates it with the
     // current definition (including is_template filter). DROP INDEX is O(1)
@@ -914,5 +985,52 @@ mod tests {
             !cols.contains(&"id".to_string()),
             "legacy id column should be removed"
         );
+    }
+
+    /// Migration: add missing issue columns for older schemas.
+    #[test]
+    fn test_migration_adds_missing_issue_columns() {
+        let conn = Connection::open_in_memory().unwrap();
+
+        conn.execute_batch(
+            r"
+            CREATE TABLE issues (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL
+            );
+        ",
+        )
+        .unwrap();
+
+        apply_schema(&conn).unwrap();
+
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info('issues')")
+            .unwrap()
+            .query_map([], |row| row.get(1))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+
+        let required = [
+            "description",
+            "design",
+            "acceptance_criteria",
+            "notes",
+            "owner",
+            "created_by",
+            "updated_at",
+            "source_repo",
+            "compaction_level",
+            "sender",
+            "is_template",
+        ];
+
+        for column in required {
+            assert!(
+                cols.contains(&column.to_string()),
+                "missing column {column}"
+            );
+        }
     }
 }
