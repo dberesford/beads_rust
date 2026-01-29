@@ -64,27 +64,23 @@ fn issue_id_completer_with_filter(
 }
 
 fn load_issue_ids(filter: IssueCompletionFilter, prefix: &str) -> Vec<String> {
-    let beads_dir = match config::discover_beads_dir(None) {
-        Ok(dir) => dir,
-        Err(_) => return Vec::new(),
+    let Ok(beads_dir) = config::discover_beads_dir(None) else {
+        return Vec::new();
     };
-    let paths = match config::resolve_paths(&beads_dir, None) {
-        Ok(paths) => paths,
-        Err(_) => return Vec::new(),
+    let Ok(paths) = config::resolve_paths(&beads_dir, None) else {
+        return Vec::new();
     };
 
-    let file = match File::open(&paths.jsonl_path) {
-        Ok(file) => file,
-        Err(_) => return Vec::new(),
+    let Ok(file) = File::open(&paths.jsonl_path) else {
+        return Vec::new();
     };
 
     let reader = BufReader::new(file);
     let mut ids = Vec::new();
 
     for line_result in reader.lines() {
-        let line = match line_result {
-            Ok(line) => line,
-            Err(_) => break,
+        let Ok(line) = line_result else {
+            break;
         };
         let trimmed = line.trim();
         if trimmed.is_empty() {

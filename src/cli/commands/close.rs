@@ -123,7 +123,7 @@ pub fn execute(
 #[allow(clippy::too_many_lines)]
 pub fn execute_with_args(
     args: &CloseArgs,
-    _json: bool,
+    use_json: bool,
     cli: &config::CliOverrides,
     ctx: &OutputContext,
 ) -> Result<()> {
@@ -290,7 +290,7 @@ pub fn execute_with_args(
     };
 
     // Output
-    if ctx.is_json() {
+    if use_json {
         if args.suggest_next {
             // suggest_next is br-only, use wrapped format
             let result = CloseWithSuggestResult {
@@ -298,10 +298,12 @@ pub fn execute_with_args(
                 skipped: skipped_issues,
                 unblocked: unblocked_issues,
             };
-            ctx.json_pretty(&result);
+            let json = serde_json::to_string_pretty(&result)?;
+            println!("{json}");
         } else {
             // bd conformance: output bare array of closed issues
-            ctx.json_pretty(&closed_issues);
+            let json = serde_json::to_string_pretty(&closed_issues)?;
+            println!("{json}");
         }
     } else {
         if closed_issues.is_empty() && skipped_issues.is_empty() {

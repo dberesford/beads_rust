@@ -142,7 +142,8 @@ pub fn execute_defer(
     if use_json {
         // bd outputs a bare array of updated issues
         let json_output: Vec<ReadyIssue> = deferred_full.iter().map(ReadyIssue::from).collect();
-        ctx.json_pretty(&json_output);
+        let json = serde_json::to_string_pretty(&json_output)?;
+        println!("{json}");
     } else if matches!(ctx.mode(), OutputMode::Rich) {
         render_defer_rich(&deferred_issues, &skipped_issues, ctx);
     } else {
@@ -271,7 +272,8 @@ pub fn execute_undefer(
     if use_json {
         // bd outputs a bare array of updated issues
         let json_output: Vec<ReadyIssue> = undeferred_full.iter().map(ReadyIssue::from).collect();
-        ctx.json_pretty(&json_output);
+        let json = serde_json::to_string_pretty(&json_output)?;
+        println!("{json}");
     } else if matches!(ctx.mode(), OutputMode::Rich) {
         render_undefer_rich(&undeferred_issues, &skipped_issues, ctx);
     } else {

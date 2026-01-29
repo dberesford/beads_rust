@@ -86,12 +86,6 @@ pub fn execute(
     };
 
     // Output based on mode
-    if args.robot {
-        // Robot mode: key=value format for script consumption
-        print_robot_output(&output);
-        return Ok(());
-    }
-
     if matches!(ctx.mode(), OutputMode::Quiet) {
         return Ok(());
     }
@@ -414,50 +408,6 @@ fn compute_recent_activity(beads_dir: &Path, hours: u32) -> Option<RecentActivit
         issues_reopened: 0,
         total_changes: 0,
     })
-}
-
-/// Print robot-friendly key=value output for script consumption.
-fn print_robot_output(output: &Statistics) {
-    let s = &output.summary;
-    println!(
-        "total={} open={} in_progress={} closed={} ready={} blocked={} deferred={} tombstone={} pinned={}",
-        s.total_issues,
-        s.open_issues,
-        s.in_progress_issues,
-        s.closed_issues,
-        s.ready_issues,
-        s.blocked_issues,
-        s.deferred_issues,
-        s.tombstone_issues,
-        s.pinned_issues,
-    );
-
-    if s.epics_eligible_for_closure > 0 {
-        println!("epics_closeable={}", s.epics_eligible_for_closure);
-    }
-
-    if let Some(avg) = s.average_lead_time_hours {
-        println!("avg_lead_time_hours={:.1}", avg);
-    }
-
-    for breakdown in &output.breakdowns {
-        for entry in &breakdown.counts {
-            // Normalize key for shell-friendly output
-            let key = entry
-                .key
-                .to_lowercase()
-                .replace(' ', "_")
-                .replace(['(', ')'], "");
-            println!("{}_{key}={}", breakdown.dimension, entry.count);
-        }
-    }
-
-    if let Some(activity) = &output.recent_activity {
-        println!(
-            "activity_hours={} commits={} changes={}",
-            activity.hours_tracked, activity.commit_count, activity.total_changes
-        );
-    }
 }
 
 /// Print text output for stats.
