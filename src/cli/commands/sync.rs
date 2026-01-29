@@ -467,7 +467,7 @@ fn execute_flush(
     _beads_dir: &Path,
     path_policy: &SyncPathPolicy,
     args: &SyncArgs,
-    _json: bool,
+    use_json: bool,
     show_progress: bool,
     retention_days: Option<u64>,
     ctx: &OutputContext,
@@ -548,7 +548,7 @@ fn execute_flush(
             }
         }
 
-        if ctx.is_json() {
+        if use_json {
             let result = FlushResult {
                 exported_issues: 0,
                 exported_dependencies: 0,
@@ -640,7 +640,7 @@ fn execute_flush(
         manifest_path,
     };
 
-    if ctx.is_json() {
+    if use_json {
         ctx.json_pretty(&result);
     } else if ctx.is_rich() {
         render_flush_result_rich(&result, &report.errors, ctx);
@@ -843,7 +843,7 @@ fn execute_import(
     storage: &mut crate::storage::SqliteStorage,
     path_policy: &SyncPathPolicy,
     args: &SyncArgs,
-    _json: bool,
+    use_json: bool,
     show_progress: bool,
     ctx: &OutputContext,
 ) -> Result<()> {
@@ -859,7 +859,7 @@ fn execute_import(
     // Check if JSONL exists
     if !jsonl_path.exists() {
         warn!(path = %jsonl_path.display(), "JSONL path missing, skipping import");
-        if ctx.is_json() {
+        if use_json {
             let result = ImportResultOutput {
                 created: 0,
                 updated: 0,
@@ -889,7 +889,7 @@ fn execute_import(
                     "JSONL is current, skipping import"
                 );
 
-                if ctx.is_json() {
+                if use_json {
                     let result = ImportResultOutput {
                         created: 0,
                         updated: 0,
@@ -975,7 +975,7 @@ fn execute_import(
         blocked_cache_rebuilt: true,
     };
 
-    if ctx.is_json() {
+    if use_json {
         ctx.json_pretty(&result);
     } else if ctx.is_rich() {
         render_import_result_rich(&result, ctx);
@@ -1097,7 +1097,7 @@ fn execute_merge(
     storage: &mut crate::storage::SqliteStorage,
     path_policy: &SyncPathPolicy,
     args: &SyncArgs,
-    _json: bool,
+    use_json: bool,
     show_progress: bool,
     retention_days: Option<u64>,
     cli: &config::CliOverrides,
@@ -1218,7 +1218,7 @@ fn execute_merge(
     finalize_export(storage, &export_result, Some(&export_result.issue_hashes))?;
 
     // Output success message
-    if ctx.is_json() {
+    if use_json {
         let output = serde_json::json!({
             "status": "success",
             "merged_issues": report.kept.len(),
