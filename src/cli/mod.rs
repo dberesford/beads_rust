@@ -1,9 +1,111 @@
 //! CLI definitions and entry point.
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap_complete::engine::{ArgValueCompleter, CompletionCandidate};
+use serde::Deserialize;
+use std::ffi::OsStr;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
+use crate::config;
+use crate::model::Status;
+
 pub mod commands;
+
+#[derive(Clone, Copy)]
+enum IssueCompletionFilter {
+    Any,
+    Open,
+    Closed,
+}
+
+impl IssueCompletionFilter {
+    fn matches(self, status: &Status) -> bool {
+        match self {
+            Self::Any => true,
+            Self::Open => !status.is_terminal(),
+            Self::Closed => status.is_terminal(),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct CompletionIssue {
+    id: String,
+    #[serde(default)]
+    status: Status,
+}
+
+fn issue_id_completer(current: &OsStr) -> Vec<CompletionCandidate> {
+    issue_id_completer_with_filter(current, IssueCompletionFilter::Any)
+}
+
+fn open_issue_id_completer(current: &OsStr) -> Vec<CompletionCandidate> {
+    issue_id_completer_with_filter(current, IssueCompletionFilter::Open)
+}
+
+fn closed_issue_id_completer(current: &OsStr) -> Vec<CompletionCandidate> {
+    issue_id_completer_with_filter(current, IssueCompletionFilter::Closed)
+}
+
+fn issue_id_completer_with_filter(
+    current: &OsStr,
+    filter: IssueCompletionFilter,
+) -> Vec<CompletionCandidate> {
+    let Some(prefix) = current.to_str() else {
+        return Vec::new();
+    };
+
+    load_issue_ids(filter, prefix)
+        .into_iter()
+        .map(CompletionCandidate::new)
+        .collect()
+}
+
+fn load_issue_ids(filter: IssueCompletionFilter, prefix: &str) -> Vec<String> {
+    let beads_dir = match config::discover_beads_dir(None) {
+        Ok(dir) => dir,
+        Err(_) => return Vec::new(),
+    };
+    let paths = match config::resolve_paths(&beads_dir, None) {
+        Ok(paths) => paths,
+        Err(_) => return Vec::new(),
+    };
+
+    let file = match File::open(&paths.jsonl_path) {
+        Ok(file) => file,
+        Err(_) => return Vec::new(),
+    };
+
+    let reader = BufReader::new(file);
+    let mut ids = Vec::new();
+
+    for line_result in reader.lines() {
+        let line = match line_result {
+            Ok(line) => line,
+            Err(_) => break,
+        };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let issue: CompletionIssue = match serde_json::from_str(trimmed) {
+            Ok(issue) => issue,
+            Err(_) => continue,
+        };
+        if !prefix.is_empty() && !issue.id.starts_with(prefix) {
+            continue;
+        }
+        if filter.matches(&issue.status) {
+            ids.push(issue.id);
+        }
+    }
+
+    ids.sort();
+    ids.dedup();
+    ids
+}
 
 /// Agent-first issue tracker (`SQLite` + JSONL)
 #[derive(Parser, Debug)]
@@ -311,7 +413,7 @@ pub struct CreateArgs {
     pub labels: Vec<String>,
 
     /// Parent issue ID (creates parent-child dep)
-    #[arg(long)]
+    #[arg(long, add = ArgValueCompleter::new(issue_id_completer))]
     pub parent: Option<String>,
 
     /// Dependencies (format: type:id,type:id)
@@ -377,6 +479,7 @@ pub struct QuickArgs {
 #[allow(clippy::struct_excessive_bools)]
 pub struct UpdateArgs {
     /// Issue IDs to update
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub ids: Vec<String>,
 
     /// Update title
@@ -448,7 +551,7 @@ pub struct UpdateArgs {
     pub set_labels: Vec<String>,
 
     /// Reparent to new parent (empty string removes parent)
-    #[arg(long)]
+    #[arg(long, add = ArgValueCompleter::new(issue_id_completer))]
     pub parent: Option<String>,
 
     /// Set external reference
@@ -464,6 +567,7 @@ pub struct UpdateArgs {
 #[allow(clippy::struct_excessive_bools)]
 pub struct DeleteArgs {
     /// Issue IDs to delete
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub ids: Vec<String>,
 
     /// Delete reason (default: "delete")
@@ -666,7 +770,7 @@ pub struct ListArgs {
     pub unassigned: bool,
 
     /// Filter by specific IDs (can be repeated)
-    #[arg(long)]
+    #[arg(long, add = ArgValueCompleter::new(issue_id_completer))]
     pub id: Vec<String>,
 
     /// Filter by label (AND logic, can be repeated)
@@ -770,6 +874,7 @@ pub struct SearchArgs {
 #[derive(Args, Debug, Clone, Default)]
 pub struct ShowArgs {
     /// Issue IDs
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub ids: Vec<String>,
 
     /// Output format (text, json, toon). Env: BR_OUTPUT_FORMAT, TOON_DEFAULT_FORMAT.
@@ -829,9 +934,11 @@ pub struct EpicCloseEligibleArgs {
 #[derive(Args, Debug, Default)]
 pub struct DepAddArgs {
     /// Issue ID (the one that will depend on something)
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub issue: String,
 
     /// Target issue ID (the one being depended on)
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub depends_on: String,
 
     /// Dependency type (blocks, parent-child, related, etc.)
@@ -846,15 +953,18 @@ pub struct DepAddArgs {
 #[derive(Args, Debug)]
 pub struct DepRemoveArgs {
     /// Issue ID
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub issue: String,
 
     /// Target issue ID to remove dependency to
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub depends_on: String,
 }
 
 #[derive(Args, Debug)]
 pub struct DepListArgs {
     /// Issue ID
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub issue: String,
 
     /// Direction: down (what issue depends on), up (what depends on issue), both
@@ -888,6 +998,7 @@ pub enum DepDirection {
 #[derive(Args, Debug)]
 pub struct DepTreeArgs {
     /// Issue ID (root of tree)
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub issue: String,
 
     /// Maximum depth (default: 10)
@@ -924,6 +1035,7 @@ pub enum LabelCommands {
 #[derive(Args, Debug)]
 pub struct LabelAddArgs {
     /// Issue ID(s) to add label to
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub issues: Vec<String>,
 
     /// Label to add
@@ -934,6 +1046,7 @@ pub struct LabelAddArgs {
 #[derive(Args, Debug)]
 pub struct LabelRemoveArgs {
     /// Issue ID(s) to remove label from
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub issues: Vec<String>,
 
     /// Label to remove
@@ -944,6 +1057,7 @@ pub struct LabelRemoveArgs {
 #[derive(Args, Debug)]
 pub struct LabelListArgs {
     /// Issue ID (optional - if omitted, lists all unique labels)
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub issue: Option<String>,
 }
 
@@ -962,6 +1076,7 @@ pub struct CommentsArgs {
     pub command: Option<CommentCommands>,
 
     /// Issue ID (for listing comments)
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub id: Option<String>,
 
     /// Wrap long lines instead of truncating in text output
@@ -978,6 +1093,7 @@ pub enum CommentCommands {
 #[derive(Args, Debug)]
 pub struct CommentAddArgs {
     /// Issue ID
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub id: String,
 
     /// Comment text
@@ -999,6 +1115,7 @@ pub struct CommentAddArgs {
 #[derive(Args, Debug)]
 pub struct CommentListArgs {
     /// Issue ID
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub id: String,
 
     /// Wrap long lines instead of truncating in text output
@@ -1026,7 +1143,7 @@ pub struct AuditRecordArgs {
     pub kind: Option<String>,
 
     /// Related issue ID (bd-...)
-    #[arg(long = "issue-id")]
+    #[arg(long = "issue-id", add = ArgValueCompleter::new(issue_id_completer))]
     pub issue_id: Option<String>,
 
     /// Model name (`llm_call`)
@@ -1075,6 +1192,7 @@ pub struct AuditLabelArgs {
 #[derive(Args, Debug, Clone)]
 pub struct AuditLogArgs {
     /// Issue ID
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub id: String,
 }
 
@@ -1168,6 +1286,7 @@ pub struct StaleArgs {
 #[derive(Args, Debug, Clone, Default)]
 pub struct LintArgs {
     /// Issue IDs to lint (defaults to open issues)
+    #[arg(add = ArgValueCompleter::new(issue_id_completer))]
     pub ids: Vec<String>,
 
     /// Filter by issue type (bug, task, feature, epic)
@@ -1183,6 +1302,7 @@ pub struct LintArgs {
 #[derive(Args, Debug, Clone, Default)]
 pub struct DeferArgs {
     /// Issue IDs to defer
+    #[arg(add = ArgValueCompleter::new(open_issue_id_completer))]
     pub ids: Vec<String>,
 
     /// Defer until date/time (e.g., `+1h`, `tomorrow`, `2025-01-15`)
@@ -1198,6 +1318,7 @@ pub struct DeferArgs {
 #[derive(Args, Debug, Clone, Default)]
 pub struct UndeferArgs {
     /// Issue IDs to undefer
+    #[arg(add = ArgValueCompleter::new(open_issue_id_completer))]
     pub ids: Vec<String>,
 
     /// Machine-readable output (alias for --json)
@@ -1307,6 +1428,7 @@ pub struct BlockedArgs {
 #[derive(Args, Debug, Clone, Default)]
 pub struct CloseArgs {
     /// Issue IDs to close (uses last-touched if empty)
+    #[arg(add = ArgValueCompleter::new(open_issue_id_completer))]
     pub ids: Vec<String>,
 
     /// Close reason
@@ -1334,6 +1456,7 @@ pub struct CloseArgs {
 #[derive(Args, Debug, Clone, Default)]
 pub struct ReopenArgs {
     /// Issue IDs to reopen (uses last-touched if empty)
+    #[arg(add = ArgValueCompleter::new(closed_issue_id_completer))]
     pub ids: Vec<String>,
 
     /// Reason for reopening (stored as a comment)
@@ -1662,6 +1785,7 @@ pub struct QueryDeleteArgs {
 #[derive(Args, Debug, Clone, Default)]
 pub struct GraphArgs {
     /// Issue ID (root of graph). Required unless --all is specified.
+    #[arg(add = ArgValueCompleter::new(open_issue_id_completer))]
     pub issue: Option<String>,
 
     /// Show graph for all `open`/`in_progress`/`blocked` issues (connected components)
