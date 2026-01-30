@@ -594,7 +594,7 @@ mod tests {
         let err = DependencyValidator::validate(&dep, &store).unwrap_err();
         match err {
             BeadsError::Validation { field, .. } => assert_eq!(field, "depends_on_id"),
-            _ => panic!("expected validation error"),
+            _ => unreachable!("expected validation error"),
         }
     }
 
@@ -614,7 +614,7 @@ mod tests {
                 assert!(errors.iter().any(|e| e.field == "issue_id"));
                 assert!(errors.iter().any(|e| e.field == "depends_on_id"));
             }
-            _ => panic!("expected validation errors"),
+            _ => unreachable!("expected validation errors"),
         }
     }
 
@@ -631,7 +631,7 @@ mod tests {
         let err = DependencyValidator::validate(&dep, &store).unwrap_err();
         match err {
             BeadsError::Validation { field, .. } => assert_eq!(field, "depends_on_id"),
-            _ => panic!("expected validation error"),
+            _ => unreachable!("expected validation error"),
         }
     }
 
@@ -662,7 +662,7 @@ mod tests {
         let err = DependencyValidator::validate(&dep, &store).unwrap_err();
         match err {
             BeadsError::Validation { field, .. } => assert_eq!(field, "depends_on_id"),
-            _ => panic!("expected validation error"),
+            _ => unreachable!("expected validation error"),
         }
     }
 

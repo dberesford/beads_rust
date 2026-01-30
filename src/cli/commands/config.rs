@@ -990,7 +990,7 @@ mod tests {
         );
 
         let serde_yaml::Value::Mapping(map) = config else {
-            panic!("expected mapping root");
+            unreachable!("expected mapping root");
         };
         let key = serde_yaml::Value::String("display".to_string());
         assert_eq!(
@@ -1015,11 +1015,11 @@ mod tests {
         );
 
         let serde_yaml::Value::Mapping(root) = config else {
-            panic!("expected mapping root");
+            unreachable!("expected mapping root");
         };
         let display_key = serde_yaml::Value::String("display".to_string());
         let Some(serde_yaml::Value::Mapping(display_map)) = root.get(&display_key) else {
-            panic!("expected display mapping");
+            unreachable!("expected display mapping");
         };
         let color_key = serde_yaml::Value::String("color".to_string());
         assert_eq!(

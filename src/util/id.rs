@@ -807,7 +807,7 @@ mod tests {
             assert!(matches.contains(&"bd-abc123".to_string()));
             assert!(matches.contains(&"bd-abd456".to_string()));
         } else {
-            panic!("Expected AmbiguousId error");
+            unreachable!("Expected AmbiguousId error");
         }
     }
 
@@ -819,7 +819,7 @@ mod tests {
         if let Err(BeadsError::IssueNotFound { id }) = result {
             assert_eq!(id, "nonexistent");
         } else {
-            panic!("Expected IssueNotFound error");
+            unreachable!("Expected IssueNotFound error");
         }
     }
 

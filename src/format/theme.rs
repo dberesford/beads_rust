@@ -10,10 +10,13 @@
 use crate::model::{IssueType, Priority, Status};
 use rich_rust::{Color, Style};
 
-/// Helper to parse a color by name, panicking on invalid colors.
+/// Helper to parse a color by name, falling back to default on invalid colors.
 /// Used at theme initialization time for standard color names.
 fn color(name: &str) -> Color {
-    Color::parse(name).unwrap_or_else(|_| panic!("Invalid color name: {name}"))
+    Color::parse(name).unwrap_or_else(|_| {
+        debug_assert!(false, "Invalid color name: {name}");
+        Color::default_color()
+    })
 }
 
 /// Theme providing consistent styling across rich output components.

@@ -5,7 +5,10 @@ use rich_rust::r#box::ROUNDED;
 use rich_rust::prelude::*;
 
 fn color(name: &str) -> Color {
-    Color::parse(name).unwrap_or_else(|_| panic!("Invalid color name: {name}"))
+    Color::parse(name).unwrap_or_else(|_| {
+        debug_assert!(false, "Invalid color name: {name}");
+        Color::default_color()
+    })
 }
 
 #[derive(Debug, Clone)]

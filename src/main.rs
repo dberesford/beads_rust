@@ -385,7 +385,7 @@ mod tests {
             Commands::Create(args) => {
                 assert_eq!(args.title.as_deref(), Some("FixBug"));
             }
-            other => panic!("expected create command, got {other:?}"),
+            other => unreachable!("expected create command, got {other:?}"),
         }
     }
 

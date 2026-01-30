@@ -859,7 +859,7 @@ mod tests {
         if let Err(BeadsError::IssueNotFound { id }) = result {
             assert_eq!(id, "bd-nonexistent");
         } else {
-            panic!("Expected IssueNotFound error");
+            unreachable!("Expected IssueNotFound error");
         }
 
         info!("test_create_child_with_nonexistent_parent_fails: assertions passed");
