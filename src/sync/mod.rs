@@ -1219,6 +1219,11 @@ pub fn export_to_jsonl_with_policy(
         } else {
             issue.labels.clear();
         }
+        // Normalize labels for consistent round-trip hashing (matches import behavior)
+        if !issue.labels.is_empty() {
+            issue.labels.sort();
+            issue.labels.dedup();
+        }
         if let Some(comments) = all_comments.as_ref().and_then(|map| map.get(&issue.id)) {
             issue.comments = comments.clone();
         } else {
