@@ -395,6 +395,34 @@ impl SqliteStorage {
         }
 
         self.mutate("update_issue", actor, |tx, ctx| {
+            // Atomic claim guard: check assignee INSIDE the IMMEDIATE transaction
+            // to prevent TOCTOU races where two agents both see "unassigned".
+            if updates.expect_unassigned {
+                let current_assignee: Option<String> = tx.query_row(
+                    "SELECT assignee FROM issues WHERE id = ?",
+                    [id],
+                    |row| row.get(0),
+                )?;
+                let trimmed = current_assignee
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty());
+                let claim_actor = updates.claim_actor.as_deref().unwrap_or("");
+
+                match trimmed {
+                    None => { /* unassigned, proceed with claim */ }
+                    Some(current) if !updates.claim_exclusive && current == claim_actor => {
+                        /* same actor re-claim, idempotent */
+                    }
+                    Some(current) => {
+                        return Err(BeadsError::validation(
+                            "claim",
+                            format!("issue {id} already assigned to {current}"),
+                        ));
+                    }
+                }
+            }
+
             let mut set_clauses: Vec<String> = vec![];
             let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![];
 
@@ -3179,6 +3207,13 @@ pub struct IssueUpdate {
     /// If true, do not rebuild the blocked cache after update.
     /// Caller is responsible for rebuilding cache if needed.
     pub skip_cache_rebuild: bool,
+    /// If true, verify the issue is unassigned (or assigned to `claim_actor`)
+    /// inside the IMMEDIATE transaction to prevent TOCTOU races.
+    pub expect_unassigned: bool,
+    /// If true, reject re-claims even by the same actor.
+    pub claim_exclusive: bool,
+    /// The actor performing the claim (used for idempotent same-actor check).
+    pub claim_actor: Option<String>,
 }
 
 impl IssueUpdate {
