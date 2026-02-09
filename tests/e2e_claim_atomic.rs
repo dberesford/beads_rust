@@ -125,9 +125,15 @@ fn test_claim_exclusive_rejects_same_actor() {
     };
 
     let result = storage.update_issue("test-4", &update, "alice");
-    assert!(result.is_err(), "Exclusive mode should reject same-actor re-claim");
+    assert!(
+        result.is_err(),
+        "Exclusive mode should reject same-actor re-claim"
+    );
     let err = result.unwrap_err().to_string();
-    assert!(err.contains("already assigned to alice"), "Error was: {err}");
+    assert!(
+        err.contains("already assigned to alice"),
+        "Error was: {err}"
+    );
 }
 
 #[test]
@@ -144,7 +150,10 @@ fn test_claim_whitespace_assignee_treated_as_unassigned() {
     };
 
     let result = storage.update_issue("test-5", &update, "alice");
-    assert!(result.is_ok(), "Whitespace-only assignee should be treated as unassigned");
+    assert!(
+        result.is_ok(),
+        "Whitespace-only assignee should be treated as unassigned"
+    );
 }
 
 #[test]
@@ -161,7 +170,10 @@ fn test_claim_empty_string_assignee_treated_as_unassigned() {
     };
 
     let result = storage.update_issue("test-6", &update, "alice");
-    assert!(result.is_ok(), "Empty-string assignee should be treated as unassigned");
+    assert!(
+        result.is_ok(),
+        "Empty-string assignee should be treated as unassigned"
+    );
 }
 
 #[test]

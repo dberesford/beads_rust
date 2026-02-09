@@ -398,11 +398,10 @@ impl SqliteStorage {
             // Atomic claim guard: check assignee INSIDE the IMMEDIATE transaction
             // to prevent TOCTOU races where two agents both see "unassigned".
             if updates.expect_unassigned {
-                let current_assignee: Option<String> = tx.query_row(
-                    "SELECT assignee FROM issues WHERE id = ?",
-                    [id],
-                    |row| row.get(0),
-                )?;
+                let current_assignee: Option<String> =
+                    tx.query_row("SELECT assignee FROM issues WHERE id = ?", [id], |row| {
+                        row.get(0)
+                    })?;
                 let trimmed = current_assignee
                     .as_deref()
                     .map(str::trim)
