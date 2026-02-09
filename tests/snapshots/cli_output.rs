@@ -2,6 +2,7 @@ use super::common::cli::{BrWorkspace, run_br};
 use super::{create_issue, init_workspace, normalize_output};
 use insta::assert_snapshot;
 
+#[cfg(feature = "self_update")]
 #[test]
 fn snapshot_help_output() {
     let workspace = BrWorkspace::new();

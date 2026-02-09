@@ -81,6 +81,7 @@ fn e2e_version_no_workspace_required() {
 // Upgrade --check Tests
 // =============================================================================
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_check_attempts_api_call() {
     // Upgrade --check should attempt to call the GitHub API
@@ -98,6 +99,7 @@ fn e2e_upgrade_check_attempts_api_call() {
     );
 }
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_check_json_error_structure() {
     // When network fails, JSON error should have proper structure
@@ -131,6 +133,7 @@ fn e2e_upgrade_check_json_error_structure() {
 // Upgrade --dry-run Tests
 // =============================================================================
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_dry_run_no_changes() {
     // Upgrade --dry-run should not modify anything
@@ -149,6 +152,7 @@ fn e2e_upgrade_dry_run_no_changes() {
     );
 }
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_dry_run_json() {
     // Upgrade --dry-run --json should return structured output
@@ -181,6 +185,7 @@ fn e2e_upgrade_dry_run_json() {
 // Upgrade Argument Tests
 // =============================================================================
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_with_version_flag() {
     // Upgrade --version <ver> should accept version argument
@@ -202,6 +207,7 @@ fn e2e_upgrade_with_version_flag() {
     );
 }
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_force_flag_accepted() {
     // Upgrade --force should be accepted
@@ -224,6 +230,7 @@ fn e2e_upgrade_force_flag_accepted() {
 // Error Handling Tests
 // =============================================================================
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_graceful_network_error() {
     // When network is unavailable, should fail gracefully with error message
@@ -260,6 +267,7 @@ fn e2e_upgrade_graceful_network_error() {
     }
 }
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_no_workspace_required() {
     // Upgrade should not require an initialized workspace
@@ -279,6 +287,7 @@ fn e2e_upgrade_no_workspace_required() {
 // Combined Flag Tests
 // =============================================================================
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_check_with_force_error() {
     // --check and --force together may be contradictory
@@ -300,6 +309,7 @@ fn e2e_upgrade_check_with_force_error() {
     );
 }
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_help_works() {
     // Upgrade --help should show help
@@ -323,6 +333,7 @@ fn e2e_upgrade_help_works() {
 
 /// Check if the `self_update` feature is enabled by testing if upgrade command exists.
 /// This test verifies the binary was compiled with `self_update` support.
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_feature_enabled() {
     // The upgrade command should exist when self_update feature is enabled (default)
@@ -359,11 +370,13 @@ fn e2e_upgrade_feature_enabled() {
 // - Tests copy the current binary to temp before attempting upgrade
 // - No modifications are made to the system binary
 
+#[cfg(feature = "self_update")]
 /// Helper to check if full upgrade tests are enabled via environment variable.
 fn full_upgrade_tests_enabled() -> bool {
     std::env::var("BR_TEST_FULL_UPGRADE").is_ok_and(|v| v == "1" || v.to_lowercase() == "true")
 }
 
+#[cfg(feature = "self_update")]
 /// Helper to copy the br binary to an isolated temp directory.
 /// Returns the path to the copied binary.
 fn setup_isolated_binary(workspace: &BrWorkspace) -> Option<std::path::PathBuf> {
@@ -390,6 +403,7 @@ fn setup_isolated_binary(workspace: &BrWorkspace) -> Option<std::path::PathBuf> 
     Some(target_binary)
 }
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_guarded_full_upgrade_skipped_without_env() {
     // This test verifies the guard mechanism works
@@ -402,6 +416,7 @@ fn e2e_upgrade_guarded_full_upgrade_skipped_without_env() {
     eprintln!("Full upgrade tests are disabled. Set BR_TEST_FULL_UPGRADE=1 to enable.");
 }
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_guarded_isolated_binary_setup() {
     // Skip if not enabled
@@ -435,6 +450,7 @@ fn e2e_upgrade_guarded_isolated_binary_setup() {
     );
 }
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_guarded_full_upgrade_check_only() {
     // Skip if not enabled
@@ -473,6 +489,7 @@ fn e2e_upgrade_guarded_full_upgrade_check_only() {
     );
 }
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_guarded_dry_run_isolated() {
     // Skip if not enabled
@@ -522,6 +539,7 @@ fn e2e_upgrade_guarded_dry_run_isolated() {
 // Network Error Logging Tests
 // =============================================================================
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_captures_network_error_in_log() {
     // Verify that network errors are properly captured and logged
@@ -551,6 +569,7 @@ fn e2e_upgrade_captures_network_error_in_log() {
     }
 }
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_json_error_is_valid_json() {
     // Ensure any JSON error output is well-formed
@@ -585,6 +604,7 @@ fn e2e_upgrade_json_error_is_valid_json() {
 // Non-Flaky Behavior Tests
 // =============================================================================
 
+#[cfg(feature = "self_update")]
 #[test]
 fn e2e_upgrade_consistent_help_output() {
     // Help output should be consistent across multiple runs (non-flaky)

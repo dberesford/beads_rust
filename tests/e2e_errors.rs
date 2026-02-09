@@ -2,7 +2,6 @@ mod common;
 
 use common::cli::{BrWorkspace, extract_json_payload, run_br};
 use serde_json::Value;
-use std::collections::HashMap;
 use std::fs;
 
 fn parse_created_id(stdout: &str) -> String {
@@ -248,33 +247,39 @@ fn e2e_ambiguous_id() {
 
     let mut ids: Vec<String> = Vec::new();
     let mut attempt = 0;
-    let mut ambiguous_char: Option<char> = None;
+    let mut ambiguous_prefix: Option<String> = None;
 
-    while ambiguous_char.is_none() && attempt < 20 {
+    while ambiguous_prefix.is_none() && attempt < 30 {
         let title = format!("Ambiguous {attempt}");
         let create = run_br(&workspace, ["create", &title], "create_ambiguous");
         assert!(create.status.success(), "create failed: {}", create.stderr);
         let id = parse_created_id(&create.stdout);
         ids.push(id);
 
-        let mut matches: HashMap<char, std::collections::HashSet<String>> = HashMap::new();
-        for id in &ids {
-            let hash = id.split('-').nth(1).unwrap_or("");
-            for ch in hash.chars() {
-                matches.entry(ch).or_default().insert(id.clone());
+        // Check for first-character collisions (matches how the resolver
+        // uses contains() -- a single char matches any hash containing it)
+        for i in 0..ids.len() {
+            for j in (i + 1)..ids.len() {
+                let hash_i = ids[i].split('-').nth(1).unwrap_or("");
+                let hash_j = ids[j].split('-').nth(1).unwrap_or("");
+                if !hash_i.is_empty()
+                    && !hash_j.is_empty()
+                    && hash_i.chars().next() == hash_j.chars().next()
+                {
+                    let common_char = hash_i.chars().next().unwrap();
+                    ambiguous_prefix = Some(common_char.to_string());
+                    break;
+                }
+            }
+            if ambiguous_prefix.is_some() {
+                break;
             }
         }
-
-        ambiguous_char = matches
-            .iter()
-            .find(|(_, ids)| ids.len() >= 2)
-            .map(|(ch, _)| *ch);
 
         attempt += 1;
     }
 
-    let ambiguous_char = ambiguous_char.expect("failed to find ambiguous char");
-    let ambiguous_input = ambiguous_char.to_string();
+    let ambiguous_input = ambiguous_prefix.expect("failed to find ambiguous prefix");
 
     let show = run_br(&workspace, ["show", &ambiguous_input], "show_ambiguous");
     assert!(!show.status.success(), "ambiguous id should fail");
