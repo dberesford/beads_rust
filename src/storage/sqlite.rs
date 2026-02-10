@@ -3238,6 +3238,7 @@ impl IssueUpdate {
             && self.deleted_at.is_none()
             && self.deleted_by.is_none()
             && self.delete_reason.is_none()
+            && !self.expect_unassigned
     }
 }
 
