@@ -289,6 +289,10 @@ pub fn execute_with_args(
         Vec::new()
     };
 
+    // Track counts before output (which may move the vecs)
+    let closed_count = closed_issues.len();
+    let skipped_count = skipped_issues.len();
+
     // Output
     if use_json {
         if args.suggest_next {
@@ -330,6 +334,14 @@ pub fn execute_with_args(
     }
 
     storage_ctx.flush_no_db_if_dirty()?;
+
+    // Return non-zero exit code if all issues were skipped (none actually closed)
+    if closed_count == 0 && skipped_count > 0 {
+        return Err(BeadsError::NothingToDo {
+            reason: format!("all {skipped_count} issue(s) skipped"),
+        });
+    }
+
     Ok(())
 }
 

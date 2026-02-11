@@ -106,6 +106,10 @@ pub enum ErrorCode {
     /// YAML parsing error
     YamlError,
 
+    // === Operational Errors (exit code 3) ===
+    /// All requested items were skipped; nothing to do
+    NothingToDo,
+
     // === Internal Errors (exit code 1) ===
     /// Unexpected internal error
     InternalError,
@@ -154,6 +158,8 @@ impl ErrorCode {
             Self::IoError => "IO_ERROR",
             Self::JsonError => "JSON_ERROR",
             Self::YamlError => "YAML_ERROR",
+            // Operational
+            Self::NothingToDo => "NOTHING_TO_DO",
             // Internal
             Self::InternalError => "INTERNAL_ERROR",
         }
@@ -223,6 +229,8 @@ impl ErrorCode {
             Self::ConfigError | Self::ConfigNotFound | Self::ConfigParseError => 7,
             // I/O (8)
             Self::IoError | Self::JsonError | Self::YamlError => 8,
+            // Operational (3)
+            Self::NothingToDo => 3,
             // Internal (1)
             Self::InternalError => 1,
         }
@@ -587,6 +595,10 @@ impl StructuredError {
                 ErrorCode::DuplicateDependency,
                 Some(json!({"from": from, "to": to})),
             ),
+            BeadsError::NothingToDo { reason } => (
+                ErrorCode::NothingToDo,
+                Some(json!({"reason": reason})),
+            ),
             BeadsError::Config(_) => (ErrorCode::ConfigError, None),
             BeadsError::Io(_) => (ErrorCode::IoError, None),
             BeadsError::Json(_) => (ErrorCode::JsonError, None),
@@ -640,6 +652,9 @@ impl StructuredError {
                     }
                 }
                 Some(format!("Use --force to delete '{id}' anyway."))
+            }
+            BeadsError::NothingToDo { .. } => {
+                Some("All specified issues were already closed or not found.".to_string())
             }
             BeadsError::JsonlParse { line, .. } => Some(format!(
                 "Check line {line} of the JSONL file for syntax errors."

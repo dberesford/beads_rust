@@ -3770,9 +3770,17 @@ impl SqliteStorage {
         // Add new dependencies
         for dep in dependencies {
             self.conn.execute(
-                "INSERT OR IGNORE INTO dependencies (issue_id, depends_on_id, type, created_at, created_by)
-                 VALUES (?, ?, ?, CURRENT_TIMESTAMP, 'import')",
-                rusqlite::params![issue_id, dep.depends_on_id, dep.dep_type.as_str()],
+                "INSERT OR IGNORE INTO dependencies (issue_id, depends_on_id, type, created_at, created_by, metadata, thread_id)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)",
+                rusqlite::params![
+                    issue_id,
+                    dep.depends_on_id,
+                    dep.dep_type.as_str(),
+                    dep.created_at.to_rfc3339(),
+                    dep.created_by.as_deref().unwrap_or("import"),
+                    dep.metadata.as_deref().unwrap_or("{}"),
+                    dep.thread_id.as_deref().unwrap_or(""),
+                ],
             )?;
         }
 
@@ -3796,8 +3804,9 @@ impl SqliteStorage {
         // Add new comments
         for comment in comments {
             self.conn.execute(
-                "INSERT INTO comments (issue_id, author, text, created_at) VALUES (?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO comments (id, issue_id, author, text, created_at) VALUES (?, ?, ?, ?, ?)",
                 rusqlite::params![
+                    comment.id,
                     issue_id,
                     comment.author,
                     comment.body,

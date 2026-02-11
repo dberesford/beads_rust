@@ -153,6 +153,11 @@ pub enum BeadsError {
         source: Box<dyn std::error::Error + Send + Sync>,
     },
 
+    // === Operational Errors ===
+    /// All requested items were skipped (already closed, not found, etc.).
+    #[error("Nothing to do: {reason}")]
+    NothingToDo { reason: String },
+
     /// Wrapped anyhow error for gradual migration.
     #[error(transparent)]
     Other(#[from] anyhow::Error),
@@ -241,10 +246,13 @@ impl BeadsError {
     /// Get the exit code for this error.
     ///
     /// Legacy bd typically uses exit code 1 for most errors.
+    /// `NothingToDo` uses exit code 3 (issue errors category).
     #[must_use]
     pub const fn exit_code(&self) -> i32 {
-        // Legacy bd uses exit code 1 for all errors
-        1
+        match self {
+            Self::NothingToDo { .. } => 3,
+            _ => 1,
+        }
     }
 
     /// Create a validation error for a specific field.

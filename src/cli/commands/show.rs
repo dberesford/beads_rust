@@ -134,9 +134,74 @@ fn format_issue_details(details: &crate::format::IssueDetails, use_color: bool) 
         let _ = writeln!(output, "Labels: {}", details.labels.join(", "));
     }
 
+    if let Some(ext_ref) = &issue.external_ref {
+        if !ext_ref.is_empty() {
+            let _ = writeln!(output, "Ref: {ext_ref}");
+        }
+    }
+
+    if let Some(due) = &issue.due_at {
+        let _ = writeln!(output, "Due: {}", due.format("%Y-%m-%d"));
+    }
+
+    if let Some(defer) = &issue.defer_until {
+        let _ = writeln!(output, "Deferred until: {}", defer.format("%Y-%m-%d"));
+    }
+
+    if let Some(minutes) = issue.estimated_minutes {
+        if minutes > 0 {
+            let hours = minutes / 60;
+            let remaining = minutes % 60;
+            if hours > 0 && remaining > 0 {
+                let _ = writeln!(output, "Estimate: {hours}h {remaining}m");
+            } else if hours > 0 {
+                let _ = writeln!(output, "Estimate: {hours}h");
+            } else {
+                let _ = writeln!(output, "Estimate: {remaining}m");
+            }
+        }
+    }
+
+    if let Some(closed) = &issue.closed_at {
+        let reason_str = issue
+            .close_reason
+            .as_deref()
+            .unwrap_or("closed");
+        let _ = writeln!(
+            output,
+            "Closed: {} ({})",
+            closed.format("%Y-%m-%d"),
+            reason_str
+        );
+    }
+
     if let Some(desc) = &issue.description {
         output.push('\n');
         let _ = writeln!(output, "{desc}");
+    }
+
+    if let Some(design) = &issue.design {
+        if !design.is_empty() {
+            output.push('\n');
+            let _ = writeln!(output, "Design:");
+            let _ = writeln!(output, "{design}");
+        }
+    }
+
+    if let Some(ac) = &issue.acceptance_criteria {
+        if !ac.is_empty() {
+            output.push('\n');
+            let _ = writeln!(output, "Acceptance Criteria:");
+            let _ = writeln!(output, "{ac}");
+        }
+    }
+
+    if let Some(notes) = &issue.notes {
+        if !notes.is_empty() {
+            output.push('\n');
+            let _ = writeln!(output, "Notes:");
+            let _ = writeln!(output, "{notes}");
+        }
     }
 
     if !details.dependencies.is_empty() {
