@@ -477,8 +477,8 @@ mod tests {
 
         let result = resolve_route("fe-abc", &local_beads).unwrap();
         // Canonicalize for comparison since paths may contain ".."
-        let result_canonical = result.beads_dir.canonicalize().unwrap();
-        let target_canonical = target_beads.canonicalize().unwrap();
+        let result_canonical = dunce::canonicalize(&result.beads_dir).unwrap();
+        let target_canonical = dunce::canonicalize(&target_beads).unwrap();
         assert_eq!(result_canonical, target_canonical);
         assert!(result.is_external);
         assert_eq!(result.project_path, Some("../frontend".to_string()));

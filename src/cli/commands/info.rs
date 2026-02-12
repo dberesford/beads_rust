@@ -335,7 +335,7 @@ fn format_bytes(bytes: u64) -> String {
 }
 
 fn canonicalize_lossy(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
 
 #[cfg(test)]

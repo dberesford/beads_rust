@@ -160,12 +160,12 @@ pub fn validate_no_git_path(path: &Path) -> PathValidation {
     }
 
     // Resolve the canonical path when possible (catches symlinks to .git)
-    if let Ok(canonical) = path.canonicalize() {
+    if let Ok(canonical) = dunce::canonicalize(path) {
         if has_git_component(&canonical) {
             return PathValidation::GitPathAttempt { path: canonical };
         }
     } else if let Some(parent) = path.parent() {
-        if let Ok(canonical_parent) = parent.canonicalize() {
+        if let Ok(canonical_parent) = dunce::canonicalize(parent) {
             if has_git_component(&canonical_parent) {
                 return PathValidation::GitPathAttempt {
                     path: canonical_parent,
@@ -233,7 +233,7 @@ pub fn validate_sync_path(path: &Path, beads_dir: &Path) -> PathValidation {
     }
 
     // Canonicalize the beads directory
-    let canonical_beads = match beads_dir.canonicalize() {
+    let canonical_beads = match dunce::canonicalize(beads_dir) {
         Ok(p) => p,
         Err(e) => {
             let result = PathValidation::CanonicalizationFailed {
@@ -271,7 +271,7 @@ pub fn validate_sync_path(path: &Path, beads_dir: &Path) -> PathValidation {
     };
 
     // Canonicalize the path (or its parent for new files)
-    let canonical_path = match path_to_check.canonicalize() {
+    let canonical_path = match dunce::canonicalize(&path_to_check) {
         Ok(p) => p,
         Err(e) => {
             // For non-existent files, we can't canonicalize, so check prefix
@@ -297,7 +297,7 @@ pub fn validate_sync_path(path: &Path, beads_dir: &Path) -> PathValidation {
     // Check if the path is a symlink pointing outside beads_dir
     if path.is_symlink() {
         if let Ok(target) = std::fs::read_link(path) {
-            let canonical_target = target.canonicalize().unwrap_or_else(|_| target.clone());
+            let canonical_target = dunce::canonicalize(&target).unwrap_or_else(|_| target.clone());
             if !canonical_target.starts_with(&canonical_beads) {
                 let result = PathValidation::SymlinkEscape {
                     path: path.to_path_buf(),
@@ -516,9 +516,7 @@ pub fn require_safe_sync_overwrite_path(
     allow_external: bool,
     operation: &str,
 ) -> Result<()> {
-    let canonical_beads = beads_dir
-        .canonicalize()
-        .unwrap_or_else(|_| beads_dir.to_path_buf());
+    let canonical_beads = dunce::canonicalize(beads_dir).unwrap_or_else(|_| beads_dir.to_path_buf());
     let is_internal = path.starts_with(beads_dir) || path.starts_with(&canonical_beads);
 
     if is_internal {
@@ -631,14 +629,12 @@ pub fn validate_temp_file_path(
     }
 
     // For internal paths, validate containment
-    let canonical_beads = beads_dir
-        .canonicalize()
-        .unwrap_or_else(|_| beads_dir.to_path_buf());
+    let canonical_beads =
+        dunce::canonicalize(beads_dir).unwrap_or_else(|_| beads_dir.to_path_buf());
 
     if let Some(parent) = temp_parent {
-        let canonical_parent = parent
-            .canonicalize()
-            .unwrap_or_else(|_| parent.to_path_buf());
+        let canonical_parent =
+            dunce::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
         if !canonical_parent.starts_with(&canonical_beads) {
             return Err(BeadsError::Config(format!(
                 "Temp file '{}' is outside allowed directory '{}'",

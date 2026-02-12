@@ -207,5 +207,5 @@ fn render_where_rich(output: &WhereOutput, ctx: &OutputContext) {
 }
 
 fn canonicalize_lossy(path: &Path) -> PathBuf {
-    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    dunce::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }
