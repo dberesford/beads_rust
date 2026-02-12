@@ -167,7 +167,7 @@ fn validate_sync_paths(
         allow_external_jsonl,
         "Validating sync paths"
     );
-    let canonical_beads = beads_dir.canonicalize().map_err(|e| {
+    let canonical_beads = dunce::canonicalize(beads_dir).map_err(|e| {
         BeadsError::Config(format!(
             "Failed to resolve .beads directory {}: {e}",
             beads_dir.display()
@@ -177,7 +177,7 @@ fn validate_sync_paths(
     let jsonl_parent = jsonl_path.parent().ok_or_else(|| {
         BeadsError::Config("JSONL path must include a parent directory".to_string())
     })?;
-    let canonical_parent = jsonl_parent.canonicalize().map_err(|e| {
+    let canonical_parent = dunce::canonicalize(jsonl_parent).map_err(|e| {
         BeadsError::Config(format!(
             "JSONL directory does not exist or is not accessible: {} ({e})",
             jsonl_parent.display()
@@ -185,7 +185,7 @@ fn validate_sync_paths(
     })?;
 
     let jsonl_path = if jsonl_path.exists() {
-        jsonl_path.canonicalize().map_err(|e| {
+        dunce::canonicalize(jsonl_path).map_err(|e| {
             BeadsError::Config(format!(
                 "Failed to resolve JSONL path {}: {e}",
                 jsonl_path.display()

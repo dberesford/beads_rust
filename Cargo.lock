@@ -162,6 +162,7 @@ dependencies = [
  "clap_complete",
  "criterion",
  "crossterm 0.28.1",
+ "dunce",
  "indicatif 0.18.3",
  "insta",
  "once_cell",

@@ -202,13 +202,13 @@ fn discover_beads_dir_with_env(
 ) -> Result<PathBuf> {
     if let Some(path) = env_override {
         if path.is_dir() {
-            return Ok(path.to_path_buf());
+            return routing::follow_redirects(path, 10);
         }
     } else if let Ok(value) = env::var("BEADS_DIR") {
         if !value.trim().is_empty() {
             let path = PathBuf::from(value);
             if path.is_dir() {
-                return Ok(path);
+                return routing::follow_redirects(&path, 10);
             }
         }
     }
@@ -221,7 +221,7 @@ fn discover_beads_dir_with_env(
     loop {
         let candidate = current.join(".beads");
         if candidate.is_dir() {
-            return Ok(candidate);
+            return routing::follow_redirects(&candidate, 10);
         }
 
         if !current.pop() {
