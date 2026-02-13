@@ -205,8 +205,12 @@ impl ErrorCode {
             | Self::DatabaseError
             | Self::NotInitialized
             | Self::AlreadyInitialized => 2,
-            // Issue (3)
-            Self::IssueNotFound | Self::AmbiguousId | Self::IdCollision | Self::InvalidId => 3,
+            // Issue / Operational (3)
+            Self::IssueNotFound
+            | Self::AmbiguousId
+            | Self::IdCollision
+            | Self::InvalidId
+            | Self::NothingToDo => 3,
             // Validation (4)
             Self::ValidationFailed
             | Self::InvalidStatus
@@ -229,8 +233,6 @@ impl ErrorCode {
             Self::ConfigError | Self::ConfigNotFound | Self::ConfigParseError => 7,
             // I/O (8)
             Self::IoError | Self::JsonError | Self::YamlError => 8,
-            // Operational (3)
-            Self::NothingToDo => 3,
             // Internal (1)
             Self::InternalError => 1,
         }
