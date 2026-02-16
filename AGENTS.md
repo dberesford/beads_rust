@@ -204,6 +204,24 @@ cargo fmt --check
 
 If you see errors, **carefully understand and resolve each issue**. Read sufficient context to fix them the RIGHT way.
 
+### Library-only checks (`beads-lib`)
+
+When working only on the standalone library crate, run scoped commands from repo root:
+
+```bash
+# Build library crate only
+cargo build -p beads-lib
+
+# Check all library targets
+cargo check -p beads-lib --all-targets
+
+# Strict clippy for library only
+cargo clippy -p beads-lib --all-targets -- -D warnings
+
+# Format check (workspace-wide because rustfmt is workspace-aware)
+cargo fmt --check
+```
+
 ---
 
 ## Testing
@@ -213,6 +231,16 @@ If you see errors, **carefully understand and resolve each issue**. Read suffici
 ```bash
 cargo test
 cargo test -- --nocapture
+```
+
+### Library-only tests (`beads-lib`)
+
+```bash
+# Run only beads-lib unit tests + doctests
+cargo test -p beads-lib
+
+# Optional: list exact test names
+cargo test -p beads-lib -- --list
 ```
 
 ### Focused Tests

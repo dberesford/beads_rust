@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "crates/beads-lib"]
+
 [package]
 name = "beads_rust"
 version = "0.1.13"

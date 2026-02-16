@@ -92,6 +92,7 @@ fn print_issue_details(details: &crate::format::IssueDetails, use_color: bool) {
     print!("{output}");
 }
 
+#[allow(clippy::too_many_lines)]
 fn format_issue_details(details: &crate::format::IssueDetails, use_color: bool) -> String {
     let mut output = String::new();
     let issue = &details.issue;
