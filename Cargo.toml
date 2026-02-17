@@ -1,3 +1,6 @@
+[workspace]
+members = [".", "crates/beads-lib"]
+
 [package]
 name = "beads_rust"
 version = "0.1.14"
@@ -19,7 +22,9 @@ clap = { version = "4.5", features = ["derive", "env", "unstable-ext"] }
 clap_complete = { version = "4.5", features = ["unstable-dynamic"] }
 
 # Database
-rusqlite = { version = "0.38", features = ["bundled", "modern_sqlite", "fallible_uint"] }
+# Keep libsqlite3-sys aligned with sqlx/goose (0.28.x) to avoid native sqlite link conflicts
+# when embedding beads_rust and goose in the same binary.
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
