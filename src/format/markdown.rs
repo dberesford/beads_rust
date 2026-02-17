@@ -278,15 +278,15 @@ fn skip_parentheses(chars: &[char], start: usize) -> usize {
 
 /// Render markdown using rich_rust's Markdown component.
 fn render_rich_markdown(content: &str, width: usize) -> String {
-    let md = Markdown::new(content).hyperlinks(true);
+    let md = Markdown::new(content).show_links(true);
 
     let segments = md.render(width);
 
     // Render segments to a string with ANSI codes
     let mut result = String::new();
     for segment in segments {
-        if let Some(style) = &segment.style {
-            result.push_str(&style.render(&segment.text, ColorSystem::TrueColor));
+        if let Some(style) = segment.style {
+            result.push_str(&style.render(segment.text.as_ref(), ColorSystem::TrueColor));
         } else {
             result.push_str(&segment.text);
         }
