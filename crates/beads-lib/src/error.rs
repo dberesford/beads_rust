@@ -13,6 +13,10 @@ pub enum BeadsError {
     #[error("Issue not found: {id}")]
     IssueNotFound { id: String },
 
+    /// Comment not found on the given issue.
+    #[error("Comment not found: issue {issue_id}, comment {comment_id}")]
+    CommentNotFound { issue_id: String, comment_id: i64 },
+
     /// Attempted to create an issue with an ID that already exists.
     #[error("Issue ID collision: {id}")]
     IdCollision { id: String },

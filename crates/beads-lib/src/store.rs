@@ -800,6 +800,92 @@ impl InMemoryStore {
             .unwrap_or_default()
     }
 
+    /// Update the body of an existing comment.
+    ///
+    /// # Errors
+    ///
+    /// Returns `IssueNotFound` if the issue doesn't exist, or `CommentNotFound` if
+    /// no comment with the given `comment_id` exists on that issue.
+    pub fn update_comment(
+        &mut self,
+        issue_id: &str,
+        comment_id: i64,
+        body: &str,
+        actor: &str,
+    ) -> Result<()> {
+        if !self.issues.contains_key(issue_id) {
+            return Err(BeadsError::IssueNotFound {
+                id: issue_id.to_string(),
+            });
+        }
+
+        let comments =
+            self.comments
+                .get_mut(issue_id)
+                .ok_or_else(|| BeadsError::CommentNotFound {
+                    issue_id: issue_id.to_string(),
+                    comment_id,
+                })?;
+        let comment = comments
+            .iter_mut()
+            .find(|c| c.id == comment_id)
+            .ok_or_else(|| BeadsError::CommentNotFound {
+                issue_id: issue_id.to_string(),
+                comment_id,
+            })?;
+        comment.body = body.to_string();
+
+        self.record_event(
+            issue_id,
+            EventType::Custom(format!("comment_updated:{comment_id}")),
+            actor,
+            None,
+            Some(body),
+        );
+        self.dirty_ids.insert(issue_id.to_string());
+        Ok(())
+    }
+
+    /// Remove a comment from an issue.
+    ///
+    /// # Errors
+    ///
+    /// Returns `IssueNotFound` if the issue doesn't exist, or `CommentNotFound` if
+    /// no comment with the given `comment_id` exists on that issue.
+    pub fn delete_comment(&mut self, issue_id: &str, comment_id: i64, actor: &str) -> Result<()> {
+        if !self.issues.contains_key(issue_id) {
+            return Err(BeadsError::IssueNotFound {
+                id: issue_id.to_string(),
+            });
+        }
+
+        let comments =
+            self.comments
+                .get_mut(issue_id)
+                .ok_or_else(|| BeadsError::CommentNotFound {
+                    issue_id: issue_id.to_string(),
+                    comment_id,
+                })?;
+        let pos = comments
+            .iter()
+            .position(|c| c.id == comment_id)
+            .ok_or_else(|| BeadsError::CommentNotFound {
+                issue_id: issue_id.to_string(),
+                comment_id,
+            })?;
+        comments.remove(pos);
+
+        self.record_event(
+            issue_id,
+            EventType::Custom(format!("comment_deleted:{comment_id}")),
+            actor,
+            None,
+            None,
+        );
+        self.dirty_ids.insert(issue_id.to_string());
+        Ok(())
+    }
+
     // ========================================================================
     // Events
     // ========================================================================
@@ -1505,6 +1591,76 @@ mod tests {
 
         let comments = store.get_comments("bd-cm1");
         assert_eq!(comments.len(), 2);
+    }
+
+    #[test]
+    fn test_update_comment() {
+        let mut store = InMemoryStore::new();
+        store
+            .create_issue(&make_issue("bd-uc1", "Update comment"), "user")
+            .unwrap();
+
+        // No comments yet -> comment not found (but issue exists)
+        let err = store.update_comment("bd-uc1", 1, "x", "user").unwrap_err();
+        assert!(matches!(err, BeadsError::CommentNotFound { .. }));
+        assert!(store.get_comments("bd-uc1").is_empty());
+
+        let c = store.add_comment("bd-uc1", "alice", "Original").unwrap();
+        let id = c.id;
+
+        store
+            .update_comment("bd-uc1", id, "Updated body", "user")
+            .unwrap();
+        let comments = store.get_comments("bd-uc1");
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].body, "Updated body");
+        assert_eq!(comments[0].id, id);
+
+        // Comment not found
+        let err = store
+            .update_comment("bd-uc1", 999, "x", "user")
+            .unwrap_err();
+        assert!(matches!(err, BeadsError::CommentNotFound { .. }));
+
+        // Issue not found
+        let err = store
+            .update_comment("bd-none", id, "x", "user")
+            .unwrap_err();
+        assert!(matches!(err, BeadsError::IssueNotFound { .. }));
+    }
+
+    #[test]
+    fn test_delete_comment() {
+        let mut store = InMemoryStore::new();
+        store
+            .create_issue(&make_issue("bd-dc1", "Delete comment"), "user")
+            .unwrap();
+
+        // No comments yet -> comment not found (but issue exists)
+        let err = store.delete_comment("bd-dc1", 1, "user").unwrap_err();
+        assert!(matches!(err, BeadsError::CommentNotFound { .. }));
+        assert!(store.get_comments("bd-dc1").is_empty());
+
+        let c1 = store.add_comment("bd-dc1", "alice", "First").unwrap();
+        let c2 = store.add_comment("bd-dc1", "bob", "Second").unwrap();
+        assert_eq!(store.get_comments("bd-dc1").len(), 2);
+
+        store.delete_comment("bd-dc1", c1.id, "user").unwrap();
+        let comments = store.get_comments("bd-dc1");
+        assert_eq!(comments.len(), 1);
+        assert_eq!(comments[0].id, c2.id);
+        assert_eq!(comments[0].body, "Second");
+
+        store.delete_comment("bd-dc1", c2.id, "user").unwrap();
+        assert!(store.get_comments("bd-dc1").is_empty());
+
+        // Comment not found
+        let err = store.delete_comment("bd-dc1", 999, "user").unwrap_err();
+        assert!(matches!(err, BeadsError::CommentNotFound { .. }));
+
+        // Issue not found
+        let err = store.delete_comment("bd-none", c1.id, "user").unwrap_err();
+        assert!(matches!(err, BeadsError::IssueNotFound { .. }));
     }
 
     #[test]
