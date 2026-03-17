@@ -77,14 +77,28 @@ pub fn load(path: &Path) -> Result<LoadedData> {
     })
 }
 
+/// Checks that a JSON string parses back as an `Issue` (round-trip parse check only).
+/// Does not enforce domain invariants (e.g. title non-empty).
+fn check_issue_json_roundtrip(json: &str, line: usize) -> Result<()> {
+    serde_json::from_str::<Issue>(json).map_err(|e| BeadsError::JsonlWriteRoundtripFailed {
+        line,
+        reason: e.to_string(),
+    })?;
+    Ok(())
+}
+
 /// Save issues to a JSONL file with atomic write.
 ///
 /// Each issue is serialized with its labels, dependencies, and comments
-/// re-embedded. Uses write-to-temp + rename for atomicity.
+/// re-embedded. Each line is checked by parsing back to an `Issue` (round-trip
+/// parse only; no domain validation). If the round-trip check fails, no file is
+/// written. Uses write-to-temp + rename for atomicity.
 ///
 /// # Errors
 ///
-/// Returns `Io` if the file cannot be written.
+/// * [`BeadsError::Json`] if serialization fails
+/// * [`BeadsError::JsonlWriteRoundtripFailed`] if a serialized line does not parse back as `Issue`
+/// * [`BeadsError::Io`] if the file cannot be written
 pub fn save(
     path: &Path,
     issues: &[Issue],
@@ -93,7 +107,6 @@ pub fn save(
     comments: &[(String, Vec<Comment>)],
 ) -> Result<()> {
     use std::collections::HashMap;
-    use std::io::Write;
 
     // Build lookup maps for reassembly
     let label_map: HashMap<&str, &Vec<String>> =
@@ -107,12 +120,9 @@ pub fn save(
         dep_map.entry(dep.issue_id.as_str()).or_default().push(dep);
     }
 
-    // Write to temp file
-    let tmp_path = path.with_extension("jsonl.tmp");
-    let mut file = fs::File::create(&tmp_path)?;
-
+    // Serialize and round-trip check every line before touching the filesystem.
+    let mut lines = Vec::with_capacity(issues.len());
     for issue in issues {
-        // Reassemble issue with embedded relations
         let mut full_issue = issue.clone();
         if let Some(labels) = label_map.get(issue.id.as_str()) {
             full_issue.labels.clone_from(labels);
@@ -125,23 +135,52 @@ pub fn save(
         }
 
         let json = serde_json::to_string(&full_issue)?;
-        writeln!(file, "{json}")?;
+        lines.push(json);
     }
 
+    validate_then_write(path, &lines)
+}
+
+/// Round-trip parse check on every line, then writes to path. No file I/O until all pass.
+fn validate_then_write(path: &Path, lines: &[String]) -> Result<()> {
+    for (idx, json) in lines.iter().enumerate() {
+        check_issue_json_roundtrip(json, idx + 1)?;
+    }
+    write_validated_lines(path, lines)
+}
+
+/// Writes pre-checked JSONL lines to path (temp file + atomic rename).
+fn write_validated_lines(path: &Path, lines: &[String]) -> Result<()> {
+    use std::io::Write;
+
+    let tmp_path = path.with_extension("tmp");
+    let mut file = fs::File::create(&tmp_path)?;
+    for json in lines {
+        writeln!(file, "{json}")?;
+    }
     file.flush()?;
     drop(file);
-
-    // Atomic rename
     fs::rename(&tmp_path, path)?;
-
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Priority, Status};
+    use crate::model::{Comment, Dependency, Priority, Status};
     use chrono::Utc;
+
+    fn minimal_issue_json() -> String {
+        let now = Utc::now();
+        let issue = Issue {
+            id: "bd-abc".to_string(),
+            title: "Test".to_string(),
+            created_at: now,
+            updated_at: now,
+            ..Default::default()
+        };
+        serde_json::to_string(&issue).unwrap()
+    }
 
     #[test]
     fn test_roundtrip() {
@@ -205,5 +244,159 @@ mod tests {
 
         let loaded = load(&path).unwrap();
         assert_eq!(loaded.issues.len(), 1);
+    }
+
+    // --- check_issue_json_roundtrip (round-trip parse) tests ---
+
+    #[test]
+    fn test_check_issue_json_roundtrip_accepts_valid_issue() {
+        let json = minimal_issue_json();
+        check_issue_json_roundtrip(&json, 1).unwrap();
+    }
+
+    #[test]
+    fn test_check_issue_json_roundtrip_rejects_truncated_json() {
+        let json = r#"{"id":"x","title":"x"#;
+        let err = check_issue_json_roundtrip(json, 1).unwrap_err();
+        match &err {
+            BeadsError::JsonlWriteRoundtripFailed { line, reason } => {
+                assert_eq!(*line, 1);
+                assert!(!reason.is_empty());
+            }
+            _ => panic!("expected JsonlWriteValidation, got {err:?}"),
+        }
+    }
+
+    #[test]
+    fn test_check_issue_json_roundtrip_rejects_empty_string() {
+        let err = check_issue_json_roundtrip("", 1).unwrap_err();
+        match &err {
+            BeadsError::JsonlWriteRoundtripFailed { line, reason } => {
+                assert_eq!(*line, 1);
+                assert!(!reason.is_empty());
+            }
+            _ => panic!("expected JsonlWriteValidation, got {err:?}"),
+        }
+    }
+
+    #[test]
+    fn test_check_issue_json_roundtrip_rejects_invalid_syntax() {
+        let err = check_issue_json_roundtrip("{]", 1).unwrap_err();
+        match &err {
+            BeadsError::JsonlWriteRoundtripFailed { .. } => {}
+            _ => panic!("expected JsonlWriteValidation, got {err:?}"),
+        }
+    }
+
+    #[test]
+    fn test_check_issue_json_roundtrip_rejects_missing_required_field() {
+        // Valid JSON but missing required Issue fields (e.g. created_at).
+        let json = r#"{"id":"x","title":"x"}"#;
+        let err = check_issue_json_roundtrip(json, 1).unwrap_err();
+        match &err {
+            BeadsError::JsonlWriteRoundtripFailed { line, reason } => {
+                assert_eq!(*line, 1);
+                assert!(!reason.is_empty());
+            }
+            _ => panic!("expected JsonlWriteValidation, got {err:?}"),
+        }
+    }
+
+    #[test]
+    fn test_check_issue_json_roundtrip_reports_line_number() {
+        let bad = r#"{"id":"x","title":"x"#;
+        let err = check_issue_json_roundtrip(bad, 42).unwrap_err();
+        match &err {
+            BeadsError::JsonlWriteRoundtripFailed { line, .. } => assert_eq!(*line, 42),
+            _ => panic!("expected JsonlWriteValidation, got {err:?}"),
+        }
+    }
+
+    // --- validate_then_write: no file when validation fails ---
+
+    #[test]
+    fn test_validate_then_write_rejects_invalid_line_and_does_not_create_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("out.jsonl");
+        let valid = minimal_issue_json();
+        let lines = vec![valid, r#"{"id":"y","title"#.to_string()];
+
+        let err = validate_then_write(&path, &lines).unwrap_err();
+        match &err {
+            BeadsError::JsonlWriteRoundtripFailed { line, .. } => assert_eq!(*line, 2),
+            _ => panic!("expected JsonlWriteValidation, got {err:?}"),
+        }
+        assert!(
+            !path.exists(),
+            "target file must not be created on validation failure"
+        );
+    }
+
+    #[test]
+    fn test_validate_then_write_with_valid_lines_creates_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("out.jsonl");
+        let valid = minimal_issue_json();
+        let lines = vec![valid];
+
+        validate_then_write(&path, &lines).unwrap();
+        assert!(path.exists());
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.issues.len(), 1);
+        assert_eq!(loaded.issues[0].id, "bd-abc");
+    }
+
+    #[test]
+    fn test_validate_then_write_first_line_invalid_no_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("out.jsonl");
+        let lines = vec!["not valid json".to_string()];
+
+        let err = validate_then_write(&path, &lines).unwrap_err();
+        match &err {
+            BeadsError::JsonlWriteRoundtripFailed { line, .. } => assert_eq!(*line, 1),
+            _ => panic!("expected JsonlWriteValidation, got {err:?}"),
+        }
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn test_save_multiple_issues_validates_all_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("multi.jsonl");
+        let now = Utc::now();
+        let issues = vec![
+            Issue {
+                id: "bd-a".to_string(),
+                title: "First".to_string(),
+                created_at: now,
+                updated_at: now,
+                ..Default::default()
+            },
+            Issue {
+                id: "bd-b".to_string(),
+                title: "Second".to_string(),
+                created_at: now,
+                updated_at: now,
+                ..Default::default()
+            },
+            Issue {
+                id: "bd-c".to_string(),
+                title: "Third".to_string(),
+                created_at: now,
+                updated_at: now,
+                ..Default::default()
+            },
+        ];
+        let labels: Vec<(String, Vec<String>)> = vec![];
+        let deps: Vec<Dependency> = vec![];
+        let comments: Vec<(String, Vec<Comment>)> = vec![];
+
+        save(&path, &issues, &labels, &deps, &comments).unwrap();
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.issues.len(), 3);
+        assert_eq!(loaded.issues[0].id, "bd-a");
+        assert_eq!(loaded.issues[1].id, "bd-b");
+        assert_eq!(loaded.issues[2].id, "bd-c");
     }
 }

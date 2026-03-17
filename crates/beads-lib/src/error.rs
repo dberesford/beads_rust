@@ -58,6 +58,10 @@ pub enum BeadsError {
     #[error("JSONL parse error at line {line}: {reason}")]
     JsonlParse { line: usize, reason: String },
 
+    /// Serialized JSON failed to round-trip (parse check before write; not domain validation).
+    #[error("JSONL write validation failed at line {line}: {reason}")]
+    JsonlWriteRoundtripFailed { line: usize, reason: String },
+
     /// Issue prefix doesn't match expected prefix.
     #[error("Prefix mismatch: expected '{expected}', found '{found}'")]
     PrefixMismatch { expected: String, found: String },
