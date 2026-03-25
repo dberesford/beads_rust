@@ -57,9 +57,6 @@ pub struct ChangelogEntry {
 ///
 /// Returns an error if config loading, git lookup, or storage access fails.
 ///
-/// # Panics
-///
-/// Panics if JSON serialization of the output fails (should never happen with valid data).
 pub fn execute(
     args: &ChangelogArgs,
     json: bool,
@@ -135,7 +132,7 @@ pub fn execute(
     if json {
         // Print JSON directly - don't rely on ctx.json_pretty() since the
         // OutputContext may not be in JSON mode when --robot flag is used
-        println!("{}", serde_json::to_string_pretty(&output).unwrap());
+        println!("{}", serde_json::to_string_pretty(&output)?);
         return Ok(());
     }
 
