@@ -10,7 +10,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, Transaction};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::warn;
 
 /// SQLite-based storage backend.
@@ -698,7 +698,9 @@ impl SqliteStorage {
     /// # Errors
     ///
     /// Returns an error if the database query fails.
+    #[tracing::instrument(skip(self))]
     pub fn get_issue(&self, id: &str) -> Result<Option<Issue>> {
+        let start = Instant::now();
         let sql = r"
             SELECT id, content_hash, title, description, design, acceptance_criteria, notes,
                    status, priority, issue_type, assignee, owner, estimated_minutes,
@@ -713,10 +715,20 @@ impl SqliteStorage {
         let mut stmt = self.conn.prepare_cached(sql)?;
         let result = stmt.query_row([id], |row| self.issue_from_row(row));
 
+        let elapsed = start.elapsed();
         match result {
-            Ok(issue) => Ok(Some(issue)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e.into()),
+            Ok(issue) => {
+                tracing::debug!(operation = "get_issue", duration_ms = elapsed.as_millis(), found = true, "DB query completed");
+                Ok(Some(issue))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                tracing::debug!(operation = "get_issue", duration_ms = elapsed.as_millis(), found = false, "DB query completed");
+                Ok(None)
+            }
+            Err(e) => {
+                tracing::warn!(operation = "get_issue", duration_ms = elapsed.as_millis(), error = %e, "DB query failed");
+                Err(e.into())
+            }
         }
     }
 
@@ -725,7 +737,9 @@ impl SqliteStorage {
     /// # Errors
     ///
     /// Returns an error if the database query fails.
+    #[tracing::instrument(skip(self), fields(count = ids.len()))]
     pub fn get_issues_by_ids(&self, ids: &[String]) -> Result<Vec<Issue>> {
+        let start = Instant::now();
         const SQLITE_VAR_LIMIT: usize = 900;
 
         if ids.is_empty() {
@@ -758,6 +772,7 @@ impl SqliteStorage {
             issues.extend(chunk_issues);
         }
 
+        tracing::debug!(operation = "get_issues_by_ids", duration_ms = start.elapsed().as_millis(), result_count = issues.len(), "DB query completed");
         Ok(issues)
     }
 
@@ -767,7 +782,9 @@ impl SqliteStorage {
     ///
     /// Returns an error if the database query fails.
     #[allow(clippy::too_many_lines)]
+    #[tracing::instrument(skip(self, filters))]
     pub fn list_issues(&self, filters: &ListFilters) -> Result<Vec<Issue>> {
+        let start = Instant::now();
         let mut sql = String::from(
             r"SELECT id, content_hash, title, description, design, acceptance_criteria, notes,
                      status, priority, issue_type, assignee, owner, estimated_minutes,
@@ -919,6 +936,7 @@ impl SqliteStorage {
             .query_map(params_refs.as_slice(), |row| self.issue_from_row(row))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
+        tracing::debug!(operation = "list_issues", duration_ms = start.elapsed().as_millis(), result_count = issues.len(), "DB query completed");
         Ok(issues)
     }
 
@@ -928,7 +946,9 @@ impl SqliteStorage {
     ///
     /// Returns an error if the database query fails.
     #[allow(clippy::too_many_lines)]
+    #[tracing::instrument(skip(self, filters))]
     pub fn search_issues(&self, query: &str, filters: &ListFilters) -> Result<Vec<Issue>> {
+        let start = Instant::now();
         let trimmed = query.trim();
         if trimmed.is_empty() {
             return Ok(Vec::new());
@@ -1047,6 +1067,7 @@ impl SqliteStorage {
             .query_map(params_refs.as_slice(), |row| self.issue_from_row(row))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
+        tracing::debug!(operation = "search_issues", duration_ms = start.elapsed().as_millis(), result_count = issues.len(), "DB query completed");
         Ok(issues)
     }
 
