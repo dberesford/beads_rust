@@ -31,7 +31,8 @@ fn main() {
 
     if should_auto_import(&cli.command) && !cli.no_db {
         if let Err(e) = run_auto_import(&overrides, cli.allow_stale, cli.no_auto_import) {
-            handle_error(&e, cli.json);
+            eprintln!("Warning: auto-import failed: {e}");
+            eprintln!("Proceeding with potentially stale data. Run 'br sync --import-only' to fix.");
         }
     }
 
