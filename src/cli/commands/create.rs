@@ -26,6 +26,7 @@ pub struct CreateConfig {
 ///
 /// Returns an error if validation fails, the database cannot be opened, or the issue cannot be created.
 #[allow(clippy::too_many_lines)]
+#[tracing::instrument(skip_all)]
 pub fn execute(args: &CreateArgs, cli: &config::CliOverrides, ctx: &OutputContext) -> Result<()> {
     if let Some(ref file_path) = args.file {
         if args.title.is_some() || args.title_flag.is_some() {

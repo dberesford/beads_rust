@@ -1196,6 +1196,7 @@ pub fn get_issue_ids_from_jsonl(path: &Path) -> Result<HashSet<String>> {
 /// - Safety guard is violated (empty DB, non-empty JSONL, no force)
 /// - File write fails
 #[allow(clippy::too_many_lines)]
+#[tracing::instrument(skip(storage, config), fields(output = %output_path.display()))]
 pub fn export_to_jsonl(
     storage: &SqliteStorage,
     output_path: &Path,
@@ -1215,6 +1216,7 @@ pub fn export_to_jsonl(
 /// - Safety guards are violated (empty/stale export without `force`)
 /// - File I/O fails
 #[allow(clippy::too_many_lines)]
+#[tracing::instrument(skip(storage, config), fields(output = %output_path.display()))]
 pub fn export_to_jsonl_with_policy(
     storage: &SqliteStorage,
     output_path: &Path,
@@ -1727,6 +1729,7 @@ pub struct AutoImportResult {
 /// # Errors
 ///
 /// Returns an error if staleness checks, metadata reads, or import steps fail.
+#[tracing::instrument(skip(storage), fields(jsonl = %jsonl_path.display()))]
 pub fn auto_import_if_stale(
     storage: &mut SqliteStorage,
     beads_dir: &Path,
@@ -1860,6 +1863,7 @@ pub struct AutoFlushResult {
 /// # Errors
 ///
 /// Returns an error if the export fails.
+#[tracing::instrument(skip(storage))]
 pub fn auto_flush(storage: &mut SqliteStorage, beads_dir: &Path) -> Result<AutoFlushResult> {
     // Check for dirty issues first
     let dirty_count = storage.get_dirty_issue_count()?;
@@ -2121,6 +2125,7 @@ fn normalize_issue(issue: &mut Issue) {
 /// - Prefix validation fails
 /// - Database operations fail
 #[allow(clippy::too_many_lines)]
+#[tracing::instrument(skip(storage, config), fields(input = %input_path.display()))]
 pub fn import_from_jsonl(
     storage: &mut SqliteStorage,
     input_path: &Path,
