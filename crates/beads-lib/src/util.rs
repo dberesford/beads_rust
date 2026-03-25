@@ -51,7 +51,19 @@ where
                 }
                 nonce += 1;
                 if nonce > 1000 {
-                    return format!("{prefix}-{hash_str}{nonce}");
+                    let desperate_id = format!("{prefix}-{hash_str}{nonce}");
+                    if !exists(&desperate_id) {
+                        return desperate_id;
+                    }
+                    let entropy = format!(
+                        "{}|{}|{}",
+                        std::process::id(),
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map_or(0, |d| d.as_nanos()),
+                        nonce,
+                    );
+                    return format!("{prefix}-{}", compute_id_hash(&entropy, 12));
                 }
             }
         }
@@ -265,5 +277,47 @@ mod tests {
             generated.contains(id)
         });
         assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn test_generate_id_desperate_fallback_checks_exists() {
+        let now = Utc::now();
+        let title = "Collision Test";
+        let mut blocked_ids = std::collections::HashSet::new();
+
+        // Block all candidates at lengths 3..=8 (nonces 0..10 each)
+        for length in 3..=8 {
+            for nonce in 0..10u32 {
+                let seed = generate_id_seed(title, None, None, now, nonce);
+                let hash_str = compute_id_hash(&seed, length);
+                blocked_ids.insert(format!("bd-{hash_str}"));
+            }
+        }
+
+        // Block all fallback candidates at length 12 (nonces 0..=1000)
+        for nonce in 0..=1000u32 {
+            let seed = generate_id_seed(title, None, None, now, nonce);
+            let hash_str = compute_id_hash(&seed, 12);
+            blocked_ids.insert(format!("bd-{hash_str}"));
+        }
+
+        // Block the desperate fallback: when nonce > 1000 triggers, nonce is 1001
+        // but hash_str was computed from the last iteration (nonce=1000).
+        let seed_1000 = generate_id_seed(title, None, None, now, 1000);
+        let hash_1000 = compute_id_hash(&seed_1000, 12);
+        blocked_ids.insert(format!("bd-{hash_1000}1001"));
+
+        let generated = generate_id("bd", title, None, None, now, 0, |id| {
+            blocked_ids.contains(id)
+        });
+
+        assert!(
+            !blocked_ids.contains(&generated),
+            "generate_id returned a colliding ID: {generated}"
+        );
+        assert!(
+            generated.starts_with("bd-"),
+            "generated ID should have correct prefix: {generated}"
+        );
     }
 }

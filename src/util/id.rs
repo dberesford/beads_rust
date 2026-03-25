@@ -152,10 +152,21 @@ impl IdGenerator {
 
                     nonce += 1;
 
-                    // Safety break (unlikely to hit unless DB is full of collisions or checking is broken)
                     if nonce > 1000 {
-                        // Desperate fallback: append large number to guarantee uniqueness
-                        return format!("{}-{}{}", self.config.prefix, hash_str, nonce);
+                        let desperate_id =
+                            format!("{}-{}{}", self.config.prefix, hash_str, nonce);
+                        if !exists(&desperate_id) {
+                            return desperate_id;
+                        }
+                        let entropy = format!(
+                            "{}|{}|{}",
+                            std::process::id(),
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map_or(0, |d| d.as_nanos()),
+                            nonce,
+                        );
+                        return format!("{}-{}", self.config.prefix, compute_id_hash(&entropy, 12));
                     }
                 }
             }

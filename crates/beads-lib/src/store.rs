@@ -67,6 +67,12 @@ impl InMemoryStore {
         store.jsonl_path = Some(path.to_path_buf());
 
         for issue in loaded.issues {
+            if store.issues.contains_key(&issue.id) {
+                tracing::warn!(
+                    id = %issue.id,
+                    "Duplicate issue ID in JSONL file; later entry overwrites earlier one"
+                );
+            }
             store.issues.insert(issue.id.clone(), issue);
         }
 
@@ -165,6 +171,11 @@ impl InMemoryStore {
                 self.issues.len(),
                 |id| self.issues.contains_key(id),
             );
+            if self.issues.contains_key(&new_issue.id) {
+                return Err(BeadsError::IdCollision {
+                    id: new_issue.id.clone(),
+                });
+            }
         } else if self.issues.contains_key(&new_issue.id) {
             return Err(BeadsError::IdCollision {
                 id: new_issue.id.clone(),
