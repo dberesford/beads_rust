@@ -245,8 +245,15 @@ fn run_auto_import(
     if outcome.attempted {
         debug!(
             imported_count = outcome.imported_count,
+            skipped_count = outcome.skipped_count,
             "Auto-import attempt completed"
         );
+        if outcome.skipped_count > 0 {
+            eprintln!(
+                "Warning: auto-import skipped {} issue(s). Run 'br sync --import-only' for details.",
+                outcome.skipped_count
+            );
+        }
     }
 
     Ok(())

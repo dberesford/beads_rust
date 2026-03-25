@@ -1714,6 +1714,8 @@ pub struct AutoImportResult {
     pub attempted: bool,
     /// Number of issues imported (created or updated).
     pub imported_count: usize,
+    /// Number of issues skipped during import.
+    pub skipped_count: usize,
 }
 
 /// Auto-import JSONL if it is newer than the DB.
@@ -1767,13 +1769,23 @@ pub fn auto_import_if_stale(
 
     tracing::debug!(
         imported_count = result.imported_count,
+        skipped_count = result.skipped_count,
         jsonl_path = %jsonl_path.display(),
         "Auto-import completed"
     );
 
+    if result.skipped_count > 0 {
+        tracing::warn!(
+            skipped_count = result.skipped_count,
+            jsonl_path = %jsonl_path.display(),
+            "Auto-import skipped issues; run 'br sync --import-only' for details"
+        );
+    }
+
     Ok(AutoImportResult {
         attempted: true,
         imported_count: result.imported_count,
+        skipped_count: result.skipped_count,
     })
 }
 
@@ -2409,10 +2421,11 @@ fn process_import_action(
             result.imported_count += 1;
         }
         CollisionAction::Skip { reason } => {
-            tracing::debug!(id = %issue.id, reason = %reason, "Skipping issue");
             if reason.starts_with("Tombstone") {
+                tracing::debug!(id = %issue.id, reason = %reason, "Skipping tombstone issue");
                 result.tombstone_skipped += 1;
             } else {
+                tracing::warn!(id = %issue.id, reason = %reason, "Skipping issue during import");
                 result.skipped_count += 1;
             }
         }
