@@ -2303,10 +2303,23 @@ pub fn import_from_jsonl(
 
         let mut effective_issue = issue.clone();
 
-        // Handle external ref duplicates before collision detection
+        // Handle external ref duplicates before collision detection.
+        // Collision detection requires unique external_refs, so duplicates must
+        // be cleared. We preserve the original value in the notes field and warn
+        // the user instead of losing it silently.
         if let Some(ref ext_ref) = issue.external_ref {
             if seen_external_refs.contains(ext_ref) {
                 if config.clear_duplicate_external_refs {
+                    tracing::warn!(
+                        id = %issue.id,
+                        external_ref = %ext_ref,
+                        "Duplicate external_ref cleared; original preserved in notes"
+                    );
+                    let note = format!("Duplicate external_ref cleared during import: {ext_ref}");
+                    effective_issue.notes = Some(match effective_issue.notes {
+                        Some(existing) => format!("{existing}\n{note}"),
+                        None => note,
+                    });
                     effective_issue.external_ref = None;
                     effective_issue.content_hash = Some(content_hash(&effective_issue));
                 } else {
@@ -3778,7 +3791,13 @@ mod tests {
         let first = storage.get_issue("bd-001").unwrap().unwrap();
         let second = storage.get_issue("bd-002").unwrap().unwrap();
         assert_eq!(first.external_ref.as_deref(), Some("JIRA-1"));
+        // external_ref cleared for collision detection but original preserved in notes
         assert!(second.external_ref.is_none());
+        assert!(
+            second.notes.as_deref().unwrap_or("").contains("Duplicate external_ref cleared during import: JIRA-1"),
+            "expected duplicate note, got: {:?}",
+            second.notes
+        );
     }
 
     #[test]
