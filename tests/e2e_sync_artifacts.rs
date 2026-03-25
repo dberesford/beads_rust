@@ -807,9 +807,6 @@ fn e2e_sync_deterministic_export() {
 /// - beads_rust-3qi: Auto-import staleness detection (Lstat + content hash + conflict markers)
 #[test]
 fn e2e_staleness_hash_check_prevents_false_touch() {
-    use std::thread;
-    use std::time::Duration;
-
     let _log = common::test_log("e2e_staleness_hash_check_prevents_false_touch");
     let workspace = BrWorkspace::new();
     let mut artifacts = TestArtifacts::new(&workspace, "staleness_hash_check");
@@ -851,8 +848,7 @@ fn e2e_staleness_hash_check_prevents_false_touch() {
         "JSONL should not be marked newer after export"
     );
 
-    // Sleep briefly to ensure mtime would differ
-    thread::sleep(Duration::from_millis(100));
+    common::wait_for_next_second();
 
     // Touch the JSONL file (updates mtime but not content)
     let jsonl_path = workspace.root.join(".beads").join("issues.jsonl");

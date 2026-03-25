@@ -20,9 +20,8 @@ mod common;
 
 use common::cli::{BrWorkspace, run_br};
 use common::dataset_registry::{DatasetRegistry, IsolatedDataset, KnownDataset};
+use common::wait_for_next_second;
 use std::fs;
-use std::thread;
-use std::time::Duration;
 
 /// Helper to run sync --flush-only.
 fn sync_flush(workspace: &BrWorkspace) {
@@ -103,8 +102,7 @@ fn e2e_history_restore_verifies_content_integrity() {
     create_issue(&workspace, "Issue before backup", "create_before");
     sync_flush(&workspace);
 
-    // Wait to ensure backup timestamp differs
-    thread::sleep(Duration::from_millis(1100));
+    wait_for_next_second();
 
     // Create more issues to change current state and trigger another backup
     create_issue(&workspace, "Issue after backup 1", "create_after_1");
@@ -326,7 +324,7 @@ fn e2e_history_prune_deletes_excess_backups() {
 
     // Create 5 backups with different timestamps
     for i in 0..5 {
-        thread::sleep(Duration::from_millis(1100)); // Ensure different timestamps
+        wait_for_next_second();
         create_issue(
             &workspace,
             &format!("Issue for prune excess {i}"),
@@ -365,7 +363,7 @@ fn e2e_history_prune_keeps_newest() {
     // Create 4 backups with different timestamps
     let mut backup_timestamps: Vec<String> = Vec::new();
     for i in 0..4 {
-        thread::sleep(Duration::from_millis(1100));
+        wait_for_next_second();
         create_issue(
             &workspace,
             &format!("Issue for keep newest {i}"),
@@ -408,7 +406,7 @@ fn e2e_history_prune_json_output() {
 
     // Create backups
     for i in 0..3 {
-        thread::sleep(Duration::from_millis(1100));
+        wait_for_next_second();
         create_issue(
             &workspace,
             &format!("Issue for prune JSON {i}"),
@@ -465,7 +463,7 @@ fn e2e_history_prune_no_backups_to_delete() {
 
     // Create exactly 2 backups
     for i in 0..2 {
-        thread::sleep(Duration::from_millis(1100));
+        wait_for_next_second();
         create_issue(
             &workspace,
             &format!("Issue for no delete {i}"),
@@ -599,7 +597,7 @@ fn e2e_history_prune_with_real_dataset() {
 
     // Create multiple backups
     for i in 0..4 {
-        thread::sleep(Duration::from_millis(1100));
+        wait_for_next_second();
         create_issue(
             &workspace,
             &format!("Real dataset issue {i}"),
@@ -702,7 +700,7 @@ fn e2e_history_prune_with_keep_zero_deletes_all() {
 
     // Create backups
     for i in 0..3 {
-        thread::sleep(Duration::from_millis(1100));
+        wait_for_next_second();
         create_issue(
             &workspace,
             &format!("Issue for zero keep {i}"),

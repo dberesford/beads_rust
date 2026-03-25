@@ -5,8 +5,7 @@ use chrono::Utc;
 use common::cli::{BrWorkspace, extract_json_payload, run_br};
 use serde_json::Value;
 use std::fs;
-use std::thread::sleep;
-use std::time::Duration;
+use common::wait_for_next_second;
 
 fn parse_created_id(stdout: &str) -> String {
     let line = stdout.lines().next().unwrap_or("");
@@ -200,7 +199,7 @@ fn e2e_sync_roundtrip() {
     }
     fs::write(&jsonl_path, updated_lines.join("\n") + "\n").expect("write jsonl");
 
-    sleep(Duration::from_millis(50));
+    wait_for_next_second();
 
     let sync_import = run_br(&workspace, ["sync", "--import-only"], "sync_import");
     assert!(
@@ -663,7 +662,7 @@ fn e2e_sync_tombstone_protection() {
     }
     fs::write(&jsonl_path, modified_lines.join("\n") + "\n").expect("write modified jsonl");
 
-    sleep(Duration::from_millis(50));
+    wait_for_next_second();
 
     // Import - tombstone should be protected (resurrection blocked)
     let import = run_br(

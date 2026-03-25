@@ -90,3 +90,25 @@ pub fn test_db_with_dir() -> (SqliteStorage, TempDir) {
     let storage = SqliteStorage::open(&db_path).expect("Failed to create test database");
     (storage, dir)
 }
+
+/// Wait until the wall-clock second advances, ensuring timestamp-based
+/// filenames will differ. Polls every 50ms instead of using a fixed sleep,
+/// so it never under-waits under CI load and never over-waits when
+/// called right before a second boundary.
+pub fn wait_for_next_second() {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let start_secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("system clock")
+        .as_secs();
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_secs();
+        if now_secs > start_secs {
+            break;
+        }
+    }
+}

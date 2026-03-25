@@ -11,9 +11,8 @@
 mod common;
 
 use common::cli::{BrWorkspace, run_br};
+use common::wait_for_next_second;
 use std::fs;
-use std::thread;
-use std::time::Duration;
 
 /// Helper to run sync --flush-only.
 fn sync_flush(workspace: &BrWorkspace) {
@@ -165,7 +164,7 @@ fn e2e_history_multiple_backups_chronological_order() {
     // Create more issues to generate multiple backups
     for i in 0..3 {
         // Wait to ensure different timestamp
-        thread::sleep(Duration::from_millis(1100));
+        wait_for_next_second();
 
         create_issue(&workspace, &format!("Issue {i}"), &format!("create_{i}"));
         sync_flush(&workspace);
@@ -268,7 +267,7 @@ fn e2e_history_prune_keeps_recent() {
 
     // Create multiple backups
     for i in 0..4 {
-        thread::sleep(Duration::from_millis(1100)); // Ensure different timestamps
+        wait_for_next_second(); // Ensure different timestamps
         create_issue(
             &workspace,
             &format!("Issue for prune {i}"),
@@ -564,8 +563,7 @@ fn e2e_history_restore_verifies_content() {
     create_issue(&workspace, "Known issue for restore", "create_known");
     sync_flush(&workspace);
 
-    // Wait to ensure different timestamp for next backup
-    thread::sleep(Duration::from_millis(1100));
+    wait_for_next_second();
 
     // Create a different issue to change current state (this creates a backup)
     create_issue(&workspace, "Different issue", "create_different");
@@ -658,7 +656,7 @@ fn e2e_history_prune_removes_oldest_backups() {
 
     // Create multiple backups with different timestamps
     for i in 0..5 {
-        thread::sleep(Duration::from_millis(1100)); // Ensure different timestamps
+        wait_for_next_second(); // Ensure different timestamps
         create_issue(
             &workspace,
             &format!("Issue for prune test {i}"),
