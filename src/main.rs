@@ -299,8 +299,9 @@ fn run_auto_flush(overrides: &config::CliOverrides) {
             }
         }
         Err(e) => {
-            // Log but don't fail - auto-flush errors shouldn't break the command
-            debug!(?e, "Auto-flush failed (non-fatal)");
+            eprintln!("Warning: auto-flush failed: {e}");
+            eprintln!("Your changes are saved locally but NOT exported to JSONL.");
+            eprintln!("Run 'br sync --flush-only' to export before committing.");
         }
     }
 }
