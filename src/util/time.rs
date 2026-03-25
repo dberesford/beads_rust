@@ -32,7 +32,7 @@ pub fn parse_flexible_timestamp(s: &str, field_name: &str) -> Result<DateTime<Ut
 
     // Try simple date (YYYY-MM-DD) - default to 9:00 AM local time
     if let Ok(date) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        let time = NaiveTime::from_hms_opt(9, 0, 0).unwrap();
+        let time = NaiveTime::from_hms_opt(9, 0, 0).expect("09:00:00 is a valid time");
         let naive_dt = date.and_time(time);
         let local_dt = Local
             .from_local_datetime(&naive_dt)
@@ -70,7 +70,7 @@ pub fn parse_flexible_timestamp(s: &str, field_name: &str) -> Result<DateTime<Ut
     match s.to_lowercase().as_str() {
         "tomorrow" => {
             let tomorrow = now.date_naive() + Duration::days(1);
-            let time = NaiveTime::from_hms_opt(9, 0, 0).unwrap();
+            let time = NaiveTime::from_hms_opt(9, 0, 0).expect("09:00:00 is a valid time");
             let naive_dt = tomorrow.and_time(time);
             let local_dt = Local
                 .from_local_datetime(&naive_dt)
@@ -80,7 +80,7 @@ pub fn parse_flexible_timestamp(s: &str, field_name: &str) -> Result<DateTime<Ut
         }
         "next-week" | "nextweek" => {
             let next_week = now.date_naive() + Duration::weeks(1);
-            let time = NaiveTime::from_hms_opt(9, 0, 0).unwrap();
+            let time = NaiveTime::from_hms_opt(9, 0, 0).expect("09:00:00 is a valid time");
             let naive_dt = next_week.and_time(time);
             let local_dt = Local
                 .from_local_datetime(&naive_dt)

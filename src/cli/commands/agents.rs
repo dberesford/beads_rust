@@ -433,8 +433,8 @@ fn execute_check(
         return Ok(());
     }
 
-    let file_path = detection.file_path.as_ref().unwrap();
-    let file_type = detection.file_type.as_ref().unwrap();
+    let file_path = detection.file_path.as_ref().expect("found() implies file_path is set");
+    let file_type = detection.file_type.as_ref().expect("found() implies file_type is set");
 
     println!("Found: {} at {}", file_type, file_path.display());
 
@@ -485,7 +485,7 @@ fn execute_add(
     }
 
     let (file_path, content) = if detection.found() {
-        let path = detection.file_path.clone().unwrap();
+        let path = detection.file_path.clone().expect("found() implies file_path is set");
         let content = detection.content.clone().unwrap_or_default();
         (path, content)
     } else {
@@ -581,8 +581,8 @@ fn execute_remove(
         return Ok(());
     }
 
-    let file_path = detection.file_path.as_ref().unwrap();
-    let content = detection.content.as_ref().unwrap();
+    let file_path = detection.file_path.as_ref().expect("has_blurb implies file_path is set");
+    let content = detection.content.as_ref().expect("has_blurb implies content is set");
 
     let new_content = if detection.has_legacy_blurb {
         remove_legacy_blurb(content)
@@ -665,8 +665,8 @@ fn execute_update(
         return Ok(());
     }
 
-    let file_path = detection.file_path.as_ref().unwrap();
-    let content = detection.content.as_ref().unwrap();
+    let file_path = detection.file_path.as_ref().expect("blurb check implies file_path is set");
+    let content = detection.content.as_ref().expect("blurb check implies content is set");
     let new_content = update_blurb(content);
 
     let from_version = if detection.has_legacy_blurb {
@@ -740,8 +740,8 @@ fn render_check_rich(detection: &AgentFileDetection, work_dir: &Path, ctx: &Outp
     let mut content = Text::new("");
 
     if detection.found() {
-        let file_path = detection.file_path.as_ref().unwrap();
-        let file_type = detection.file_type.as_ref().unwrap();
+        let file_path = detection.file_path.as_ref().expect("found() implies file_path is set");
+        let file_type = detection.file_type.as_ref().expect("found() implies file_type is set");
 
         content.append_styled("File        ", theme.dimmed.clone());
         content.append_styled(file_type, theme.emphasis.clone());

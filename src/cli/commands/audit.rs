@@ -623,9 +623,9 @@ fn render_audit_summary_plain(days: u32, totals: &AuditTotals, actors: &[ActorSu
 fn event_type_style(event_type: &EventType, theme: &Theme) -> rich_rust::Style {
     use rich_rust::Color;
     match event_type {
-        EventType::Created => Style::new().color(Color::parse("green").unwrap()),
-        EventType::Closed => Style::new().color(Color::parse("blue").unwrap()),
-        EventType::Updated => Style::new().color(Color::parse("yellow").unwrap()),
+        EventType::Created => Style::new().color(Color::parse("green").expect("valid color")),
+        EventType::Closed => Style::new().color(Color::parse("blue").expect("valid color")),
+        EventType::Updated => Style::new().color(Color::parse("yellow").expect("valid color")),
         EventType::Commented => theme.dimmed.clone(),
         _ => Style::new(),
     }

@@ -915,7 +915,7 @@ fn output_layer(layer: &ConfigLayer, source: ConfigSource, _json_mode: bool, ctx
                     .runtime
                     .get(key)
                     .or_else(|| layer.startup.get(key))
-                    .unwrap();
+                    .expect("key came from runtime or startup so must exist in one");
                 println!("  {key}: {value}");
             }
         }
