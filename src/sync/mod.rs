@@ -1471,7 +1471,19 @@ pub fn export_to_jsonl_with_policy(
         )?;
     }
 
-    // Atomic rename
+    // Verify export integrity BEFORE the atomic rename so a count mismatch
+    // never overwrites the existing JSONL with a corrupted file.
+    let actual_count = count_issues_in_jsonl(&temp_path)?;
+    if actual_count != exported_ids.len() {
+        let _ = fs::remove_file(&temp_path);
+        return Err(BeadsError::Config(format!(
+            "Export verification failed: expected {} issues, JSONL has {} lines",
+            exported_ids.len(),
+            actual_count
+        )));
+    }
+
+    // Atomic rename (only after verification passes)
     fs::rename(&temp_path, output_path)?;
 
     // Set file permissions (0600)
@@ -1484,16 +1496,6 @@ pub fn export_to_jsonl_with_policy(
 
     // Compute final hash
     let content_hash = format!("{:x}", hasher.finalize());
-
-    // Verify export integrity
-    let actual_count = count_issues_in_jsonl(output_path)?;
-    if actual_count != exported_ids.len() {
-        return Err(BeadsError::Config(format!(
-            "Export verification failed: expected {} issues, JSONL has {} lines",
-            exported_ids.len(),
-            actual_count
-        )));
-    }
 
     let result = ExportResult {
         exported_count: exported_ids.len(),
