@@ -111,7 +111,8 @@ fn format_issue_details(details: &crate::format::IssueDetails, use_color: bool) 
     let owner = issue
         .owner
         .clone()
-        .unwrap_or_else(|| std::env::var("USER").unwrap_or_else(|_| "unknown".to_string()));
+        .or_else(|| std::env::var("USER").ok())
+        .unwrap_or_else(|| "unknown".to_string());
     let _ = writeln!(
         output,
         "Owner: {} · Type: {}",
