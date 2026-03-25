@@ -69,6 +69,13 @@ pub fn load(path: &Path) -> Result<LoadedData> {
         issues.push(issue);
     }
 
+    // Deduplicate dependencies: the same dep may be embedded in both the
+    // source and target issue lines.
+    all_dependencies.sort_by(|a, b| {
+        (&a.issue_id, &a.depends_on_id).cmp(&(&b.issue_id, &b.depends_on_id))
+    });
+    all_dependencies.dedup_by(|a, b| a.issue_id == b.issue_id && a.depends_on_id == b.depends_on_id);
+
     Ok(LoadedData {
         issues,
         labels: all_labels,
@@ -114,10 +121,14 @@ pub fn save(
     let comment_map: HashMap<&str, &Vec<Comment>> =
         comments.iter().map(|(id, c)| (id.as_str(), c)).collect();
 
-    // Group dependencies by issue_id
+    // Group dependencies by both issue_id and depends_on_id so that each
+    // issue's JSONL line carries every dependency it participates in.
     let mut dep_map: HashMap<&str, Vec<&Dependency>> = HashMap::new();
     for dep in dependencies {
         dep_map.entry(dep.issue_id.as_str()).or_default().push(dep);
+        if dep.depends_on_id != dep.issue_id {
+            dep_map.entry(dep.depends_on_id.as_str()).or_default().push(dep);
+        }
     }
 
     // Serialize and round-trip check every line before touching the filesystem.
@@ -167,7 +178,7 @@ fn write_validated_lines(path: &Path, lines: &[String]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Comment, Dependency, Priority, Status};
+    use crate::model::{Comment, Dependency, DependencyType, Priority, Status};
     use chrono::Utc;
 
     fn minimal_issue_json() -> String {
@@ -398,5 +409,64 @@ mod tests {
         assert_eq!(loaded.issues[0].id, "bd-a");
         assert_eq!(loaded.issues[1].id, "bd-b");
         assert_eq!(loaded.issues[2].id, "bd-c");
+    }
+
+    #[test]
+    fn test_roundtrip_preserves_target_dependencies() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("deps.jsonl");
+        let now = Utc::now();
+
+        let issue_a = Issue {
+            id: "bd-abc".to_string(),
+            title: "Issue A".to_string(),
+            created_at: now,
+            updated_at: now,
+            ..Default::default()
+        };
+        let issue_b = Issue {
+            id: "bd-def".to_string(),
+            title: "Issue B".to_string(),
+            created_at: now,
+            updated_at: now,
+            ..Default::default()
+        };
+
+        let dep = Dependency {
+            issue_id: "bd-abc".to_string(),
+            depends_on_id: "bd-def".to_string(),
+            dep_type: DependencyType::Blocks,
+            created_at: now,
+            created_by: None,
+            metadata: None,
+            thread_id: None,
+        };
+
+        save(
+            &path,
+            &[issue_a, issue_b],
+            &[],
+            &[dep.clone()],
+            &[],
+        )
+        .unwrap();
+
+        // Verify that both issue lines contain the dependency
+        let raw = std::fs::read_to_string(&path).unwrap();
+        for line in raw.lines() {
+            let issue: Issue = serde_json::from_str(line).unwrap();
+            assert_eq!(
+                issue.dependencies.len(),
+                1,
+                "Issue {} should have the dependency embedded",
+                issue.id
+            );
+        }
+
+        // Verify load deduplicates correctly
+        let loaded = load(&path).unwrap();
+        assert_eq!(loaded.dependencies.len(), 1);
+        assert_eq!(loaded.dependencies[0].issue_id, "bd-abc");
+        assert_eq!(loaded.dependencies[0].depends_on_id, "bd-def");
     }
 }
