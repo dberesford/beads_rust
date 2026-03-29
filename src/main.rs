@@ -9,7 +9,7 @@ use clap::{CommandFactory, Parser};
 use clap_complete::CompleteEnv;
 use std::io::{self, IsTerminal};
 use std::path::Path;
-use tracing::debug;
+use tracing::{debug, error, warn};
 
 #[allow(clippy::too_many_lines)]
 fn main() {
@@ -21,7 +21,7 @@ fn main() {
     // Initialize logging
     if let Err(e) = init_logging(cli.verbose, cli.quiet, None) {
         eprintln!("Failed to initialize logging: {e}");
-        // Don't exit, just continue without logging or with basic stderr
+        eprintln!("Continuing without structured logging; use stderr messages for diagnostics.");
     }
 
     let overrides = build_cli_overrides(&cli);
@@ -31,8 +31,14 @@ fn main() {
 
     if should_auto_import(&cli.command) && !cli.no_db {
         if let Err(e) = run_auto_import(&overrides, cli.allow_stale, cli.no_auto_import) {
+            error!(
+                error = %e,
+                "Auto-import failed before command execution"
+            );
             eprintln!("Warning: auto-import failed: {e}");
-            eprintln!("Proceeding with potentially stale data. Run 'br sync --import-only' to fix.");
+            eprintln!(
+                "Proceeding with potentially stale data. Run 'br sync --import-only' to fix."
+            );
         }
     }
 
@@ -268,11 +274,17 @@ fn run_auto_flush(overrides: &config::CliOverrides) {
     // Try to discover beads directory
     let beads_dir = match config::discover_beads_dir(Some(Path::new("."))) {
         Ok(dir) => dir,
+        Err(BeadsError::NotInitialized) => {
+            debug!("Auto-flush skipped: no .beads directory");
+            return;
+        }
         Err(e) => {
-            debug!(
-                ?e,
+            warn!(
+                error = %e,
                 "Auto-flush skipped: could not discover .beads directory"
             );
+            eprintln!("Warning: auto-flush skipped: could not discover .beads directory ({e})");
+            eprintln!("Your changes are saved locally but may NOT be exported to JSONL.");
             return;
         }
     };
@@ -282,7 +294,13 @@ fn run_auto_flush(overrides: &config::CliOverrides) {
         match config::open_storage(&beads_dir, overrides.db.as_ref(), overrides.lock_timeout) {
             Ok(result) => result,
             Err(e) => {
-                debug!(?e, "Auto-flush skipped: could not open storage");
+                error!(
+                    error = %e,
+                    "Auto-flush failed: could not open storage after a mutating command"
+                );
+                eprintln!("Warning: auto-flush failed: could not open storage ({e})");
+                eprintln!("Your changes are saved locally but NOT exported to JSONL.");
+                eprintln!("Run 'br sync --flush-only' to export before committing.");
                 return;
             }
         };
@@ -299,6 +317,10 @@ fn run_auto_flush(overrides: &config::CliOverrides) {
             }
         }
         Err(e) => {
+            error!(
+                error = %e,
+                "Auto-flush failed: export to JSONL did not complete"
+            );
             eprintln!("Warning: auto-flush failed: {e}");
             eprintln!("Your changes are saved locally but NOT exported to JSONL.");
             eprintln!("Run 'br sync --flush-only' to export before committing.");
