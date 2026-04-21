@@ -1,6 +1,6 @@
 {
     "$schema": "https://raw.githubusercontent.com/ScoopInstaller/Scoop/master/schema.json",
-    "version": "0.1.13",
+    "version": "0.1.14",
     "description": "Agent-first issue tracker (SQLite + JSONL)",
     "homepage": "https://github.com/Dicklesworthstone/beads_rust",
     "license": "MIT",

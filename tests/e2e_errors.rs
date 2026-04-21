@@ -514,19 +514,28 @@ fn e2e_lint_skips_types_without_required_sections() {
 
 /// Parse structured error JSON from stderr.
 /// This handles the case where log lines may precede the JSON output.
+///
+/// Tracing may emit lines like `DEBUG span{key=value}: message` before the error
+/// envelope; the first `{` in stderr is not necessarily the start of JSON, so we
+/// try each `{` offset until one parses as an object with an `"error"` field.
 fn parse_error_json(stderr: &str) -> Option<Value> {
-    // First try parsing the whole stderr as JSON
-    if let Ok(json) = serde_json::from_str(stderr) {
-        return Some(json);
-    }
-
-    // If that fails, look for a JSON object starting with '{'
-    // This handles cases where log lines precede the JSON output
-    if let Some(start) = stderr.find('{') {
-        let json_part = &stderr[start..];
-        if let Ok(json) = serde_json::from_str(json_part) {
+    let trimmed = stderr.trim();
+    if let Ok(json) = serde_json::from_str::<Value>(trimmed) {
+        if json.get("error").is_some() {
             return Some(json);
         }
+    }
+
+    let mut search_start = 0;
+    while let Some(rel) = stderr[search_start..].find('{') {
+        let start = search_start + rel;
+        let tail = &stderr[start..];
+        if let Ok(json) = serde_json::from_str::<Value>(tail) {
+            if json.get("error").is_some() {
+                return Some(json);
+            }
+        }
+        search_start = start.saturating_add(1);
     }
 
     None

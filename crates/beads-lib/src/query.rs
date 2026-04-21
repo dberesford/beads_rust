@@ -111,3 +111,58 @@ pub enum ReadySortPolicy {
     /// Sort by created_at ASC only
     Oldest,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn issue_update_default_is_empty() {
+        let update = IssueUpdate::default();
+        assert!(update.is_empty());
+    }
+
+    #[test]
+    fn issue_update_with_title_is_not_empty() {
+        let update = IssueUpdate {
+            title: Some("New title".to_string()),
+            ..Default::default()
+        };
+        assert!(!update.is_empty());
+    }
+
+    #[test]
+    fn issue_update_outer_some_marks_field_present_even_when_inner_none() {
+        let update = IssueUpdate {
+            description: Some(None),
+            ..Default::default()
+        };
+        assert!(!update.is_empty());
+    }
+
+    #[test]
+    fn list_filters_default_optional_fields_none() {
+        let filters = ListFilters::default();
+        assert!(filters.statuses.is_none());
+        assert!(filters.types.is_none());
+        assert!(filters.priorities.is_none());
+        assert!(filters.assignee.is_none());
+        assert!(!filters.unassigned);
+        assert!(!filters.include_closed);
+        assert!(filters.labels.is_none());
+    }
+
+    #[test]
+    fn ready_filters_labels_and_tracks_entries() {
+        let mut filters = ReadyFilters::default();
+        assert!(filters.labels_and.is_empty());
+        filters.labels_and.push("backend".to_string());
+        assert_eq!(filters.labels_and.len(), 1);
+        assert_eq!(filters.labels_and[0], "backend");
+    }
+
+    #[test]
+    fn ready_sort_policy_default_is_hybrid() {
+        assert_eq!(ReadySortPolicy::default(), ReadySortPolicy::Hybrid);
+    }
+}

@@ -153,8 +153,7 @@ impl IdGenerator {
                     nonce += 1;
 
                     if nonce > 1000 {
-                        let desperate_id =
-                            format!("{}-{}{}", self.config.prefix, hash_str, nonce);
+                        let desperate_id = format!("{}-{}{}", self.config.prefix, hash_str, nonce);
                         if !exists(&desperate_id) {
                             return desperate_id;
                         }

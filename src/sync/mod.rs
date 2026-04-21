@@ -3799,7 +3799,11 @@ mod tests {
         // external_ref cleared for collision detection but original preserved in notes
         assert!(second.external_ref.is_none());
         assert!(
-            second.notes.as_deref().unwrap_or("").contains("Duplicate external_ref cleared during import: JIRA-1"),
+            second
+                .notes
+                .as_deref()
+                .unwrap_or("")
+                .contains("Duplicate external_ref cleared during import: JIRA-1"),
             "expected duplicate note, got: {:?}",
             second.notes
         );

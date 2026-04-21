@@ -335,8 +335,9 @@ pub fn execute_with_args(
 
     storage_ctx.flush_no_db_if_dirty()?;
 
-    // Return non-zero exit code if all issues were skipped (none actually closed)
-    if closed_count == 0 && skipped_count > 0 {
+    // Return non-zero exit code if all issues were skipped (none actually closed).
+    // In `--json` mode we already printed a bare `[]` (bd parity); agents expect exit 0.
+    if !use_json && closed_count == 0 && skipped_count > 0 {
         return Err(BeadsError::NothingToDo {
             reason: format!("all {skipped_count} issue(s) skipped"),
         });

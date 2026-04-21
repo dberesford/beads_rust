@@ -714,14 +714,17 @@ const KNOWN_BD_ONLY_COLUMNS: &[&str] = &[
     "waiters",         // Await waiters list
     "holder",          // Coordination holder
     "creator",         // Entity creator ref
+    "metadata",        // Extra JSON metadata (bd Gastown)
     "mol_type",        // Molecule type classification
     "molecule_id",     // Molecule grouping
     "payload",         // Payload data
     "priority_origin", // Priority inheritance tracking
     "quality_score",   // Quality scoring
     "retry_count",     // Retry automation
+    "spec_id",         // Spec / external spec linkage
     "target",          // Target system reference
     "work_type",       // Work type classification (mutex, etc.)
+    "wisp_type",       // Wisp classification (bd Gastown)
 ];
 
 /// Columns in the issues table that br has but bd doesn't have.
@@ -756,6 +759,7 @@ const KNOWN_NOTNULL_DIFFERENCES: &[&str] = &[
     "owner",
     "sender",
     "source_system",
+    "source_repo", // br NOT NULL with default; bd allows NULL
 ];
 
 #[test]
@@ -1122,12 +1126,16 @@ const KNOWN_OTHER_TABLE_DIFFS: &[(&str, &str, &str)] = &[
     ("blocked_issues_cache", "blocked_at", "missing_in_bd"),
     ("blocked_issues_cache", "blocked_by", "missing_in_bd"),
     ("blocked_issues_cache", "blocked_by_json", "missing_in_br"),
+    ("blocked_issues_cache", "issue_id", "notnull_mismatch"),
     // child_counters: br uses last_child, bd uses next_child_number
     ("child_counters", "last_child", "missing_in_bd"),
     ("child_counters", "next_child_number", "missing_in_br"),
     // Type mismatches: br uses DATETIME, bd uses TEXT (both work the same in SQLite)
     ("comments", "created_at", "type_mismatch"),
     ("dependencies", "created_at", "type_mismatch"),
+    ("dependencies", "created_at", "notnull_mismatch"),
+    ("dependencies", "type", "pk_mismatch"),
+    ("dirty_issues", "content_hash", "missing_in_br"),
     ("dirty_issues", "marked_at", "type_mismatch"),
     ("events", "created_at", "type_mismatch"),
     ("export_hashes", "exported_at", "type_mismatch"),

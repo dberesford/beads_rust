@@ -3,9 +3,9 @@ mod common;
 use beads_rust::model::{Issue, IssueType, Priority, Status};
 use chrono::Utc;
 use common::cli::{BrWorkspace, extract_json_payload, run_br};
+use common::wait_for_next_second;
 use serde_json::Value;
 use std::fs;
-use common::wait_for_next_second;
 
 fn parse_created_id(stdout: &str) -> String {
     let line = stdout.lines().next().unwrap_or("");

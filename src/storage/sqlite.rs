@@ -718,11 +718,21 @@ impl SqliteStorage {
         let elapsed = start.elapsed();
         match result {
             Ok(issue) => {
-                tracing::debug!(operation = "get_issue", duration_ms = elapsed.as_millis(), found = true, "DB query completed");
+                tracing::debug!(
+                    operation = "get_issue",
+                    duration_ms = elapsed.as_millis(),
+                    found = true,
+                    "DB query completed"
+                );
                 Ok(Some(issue))
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => {
-                tracing::debug!(operation = "get_issue", duration_ms = elapsed.as_millis(), found = false, "DB query completed");
+                tracing::debug!(
+                    operation = "get_issue",
+                    duration_ms = elapsed.as_millis(),
+                    found = false,
+                    "DB query completed"
+                );
                 Ok(None)
             }
             Err(e) => {
@@ -772,7 +782,12 @@ impl SqliteStorage {
             issues.extend(chunk_issues);
         }
 
-        tracing::debug!(operation = "get_issues_by_ids", duration_ms = start.elapsed().as_millis(), result_count = issues.len(), "DB query completed");
+        tracing::debug!(
+            operation = "get_issues_by_ids",
+            duration_ms = start.elapsed().as_millis(),
+            result_count = issues.len(),
+            "DB query completed"
+        );
         Ok(issues)
     }
 
@@ -936,7 +951,12 @@ impl SqliteStorage {
             .query_map(params_refs.as_slice(), |row| self.issue_from_row(row))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        tracing::debug!(operation = "list_issues", duration_ms = start.elapsed().as_millis(), result_count = issues.len(), "DB query completed");
+        tracing::debug!(
+            operation = "list_issues",
+            duration_ms = start.elapsed().as_millis(),
+            result_count = issues.len(),
+            "DB query completed"
+        );
         Ok(issues)
     }
 
@@ -1067,7 +1087,12 @@ impl SqliteStorage {
             .query_map(params_refs.as_slice(), |row| self.issue_from_row(row))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        tracing::debug!(operation = "search_issues", duration_ms = start.elapsed().as_millis(), result_count = issues.len(), "DB query completed");
+        tracing::debug!(
+            operation = "search_issues",
+            duration_ms = start.elapsed().as_millis(),
+            result_count = issues.len(),
+            "DB query completed"
+        );
         Ok(issues)
     }
 

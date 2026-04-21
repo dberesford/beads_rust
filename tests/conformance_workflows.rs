@@ -109,6 +109,11 @@ const STRUCTURAL_FIELDS: &[&str] = &[
 /// These are ignored when comparing JSONL outputs to allow for minor serialization differences.
 const IGNORABLE_BR_ONLY_FIELDS: &[&str] = &["compaction_level", "original_size", "source_repo"];
 
+/// True when `key` is an extra field on a dependency object that bd omits from JSONL.
+fn ignorable_br_only_dependency_field(field_path: &str, key: &str) -> bool {
+    field_path.contains(".dependencies[") && matches!(key, "metadata" | "thread_id")
+}
+
 /// Fields where br and bd have different implementation-specific defaults.
 /// These are audit/actor fields that vary between implementations but don't affect semantics.
 const IMPLEMENTATION_SPECIFIC_FIELDS: &[&str] = &["deleted_by", "delete_reason"];
@@ -248,7 +253,9 @@ fn compare_json_with_diff(br: &Value, bd: &Value, path: &str, result: &mut DiffR
                     }
                     (Some(_), None) => {
                         // Skip ignorable br-only fields (implementation extras)
-                        if !IGNORABLE_BR_ONLY_FIELDS.contains(&key.as_str()) {
+                        if !IGNORABLE_BR_ONLY_FIELDS.contains(&key.as_str())
+                            && !ignorable_br_only_dependency_field(&field_path, key.as_str())
+                        {
                             result.extra_br_fields.push(field_path);
                         }
                     }

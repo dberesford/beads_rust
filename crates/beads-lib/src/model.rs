@@ -585,3 +585,140 @@ pub struct Event {
     pub comment: Option<String>,
     pub created_at: DateTime<Utc>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::TimeZone;
+
+    fn fixed_ts() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2024, 6, 15, 12, 0, 0).unwrap()
+    }
+
+    #[test]
+    fn status_from_str_round_trip_known_variants() {
+        assert_eq!(Status::from_str("open").unwrap().as_str(), "open");
+        assert_eq!(
+            Status::from_str("IN_PROGRESS").unwrap().as_str(),
+            "in_progress"
+        );
+        assert!(Status::from_str("closed").unwrap().is_terminal());
+        assert!(Status::from_str("open").unwrap().is_active());
+    }
+
+    #[test]
+    fn status_from_str_invalid() {
+        let err = Status::from_str("not-a-real-status").unwrap_err();
+        assert!(matches!(
+            err,
+            crate::error::BeadsError::InvalidStatus { .. }
+        ));
+    }
+
+    #[test]
+    fn priority_from_str_and_display() {
+        assert_eq!(Priority::from_str("P1").unwrap(), Priority::HIGH);
+        assert_eq!(Priority::from_str("2").unwrap(), Priority::MEDIUM);
+        assert_eq!(format!("{}", Priority::CRITICAL), "P0");
+    }
+
+    #[test]
+    fn priority_from_str_out_of_range() {
+        let err = Priority::from_str("P9").unwrap_err();
+        assert!(matches!(
+            err,
+            crate::error::BeadsError::InvalidPriority { priority: 9 }
+        ));
+    }
+
+    #[test]
+    fn issue_type_from_str_standard_and_custom() {
+        assert_eq!(IssueType::from_str("bug").unwrap().as_str(), "bug");
+        let custom = IssueType::from_str("custom-type").unwrap();
+        assert_eq!(custom.as_str(), "custom-type");
+        assert!(!custom.is_standard());
+    }
+
+    #[test]
+    fn dependency_type_blocking_predicate() {
+        assert!(DependencyType::Blocks.is_blocking());
+        assert!(!DependencyType::Related.is_blocking());
+    }
+
+    #[test]
+    fn dependency_type_from_str_kebab_case() {
+        assert_eq!(
+            DependencyType::from_str("parent-child").unwrap(),
+            DependencyType::ParentChild
+        );
+    }
+
+    #[test]
+    fn comment_json_round_trip() {
+        let t = fixed_ts();
+        let original = Comment {
+            id: 42,
+            issue_id: "bd-x".to_string(),
+            author: "alice".to_string(),
+            body: "hello".to_string(),
+            created_at: t,
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let back: Comment = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, original);
+        assert!(json.contains("\"text\":\"hello\""));
+    }
+
+    #[test]
+    fn dependency_json_round_trip() {
+        let t = fixed_ts();
+        let original = Dependency {
+            issue_id: "bd-a".to_string(),
+            depends_on_id: "bd-b".to_string(),
+            dep_type: DependencyType::Blocks,
+            created_at: t,
+            created_by: Some("bob".to_string()),
+            metadata: None,
+            thread_id: None,
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let back: Dependency = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, original);
+        assert!(json.contains("\"type\":\"blocks\""));
+    }
+
+    #[test]
+    fn issue_json_round_trip_minimal() {
+        let t = fixed_ts();
+        let original = Issue {
+            id: "bd-abc".to_string(),
+            title: "Title".to_string(),
+            created_at: t,
+            updated_at: t,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let back: Issue = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.id, original.id);
+        assert_eq!(back.title, original.title);
+        assert_eq!(back.created_at, original.created_at);
+        assert_eq!(back.updated_at, original.updated_at);
+        assert_eq!(back.status, Status::Open);
+        assert!(back.content_hash.is_none());
+    }
+
+    #[test]
+    fn event_type_serde_round_trip() {
+        let event = EventType::DependencyAdded;
+        let json = serde_json::to_string(&event).unwrap();
+        assert_eq!(json, "\"dependency_added\"");
+        let back: EventType = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, event);
+    }
+
+    #[test]
+    fn event_type_unknown_deserializes_to_custom() {
+        let back: EventType = serde_json::from_str("\"future_event\"").unwrap();
+        assert_eq!(back, EventType::Custom("future_event".to_string()));
+    }
+}

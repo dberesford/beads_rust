@@ -71,10 +71,10 @@ pub fn load(path: &Path) -> Result<LoadedData> {
 
     // Deduplicate dependencies: the same dep may be embedded in both the
     // source and target issue lines.
-    all_dependencies.sort_by(|a, b| {
-        (&a.issue_id, &a.depends_on_id).cmp(&(&b.issue_id, &b.depends_on_id))
-    });
-    all_dependencies.dedup_by(|a, b| a.issue_id == b.issue_id && a.depends_on_id == b.depends_on_id);
+    all_dependencies
+        .sort_by(|a, b| (&a.issue_id, &a.depends_on_id).cmp(&(&b.issue_id, &b.depends_on_id)));
+    all_dependencies
+        .dedup_by(|a, b| a.issue_id == b.issue_id && a.depends_on_id == b.depends_on_id);
 
     Ok(LoadedData {
         issues,
@@ -127,7 +127,10 @@ pub fn save(
     for dep in dependencies {
         dep_map.entry(dep.issue_id.as_str()).or_default().push(dep);
         if dep.depends_on_id != dep.issue_id {
-            dep_map.entry(dep.depends_on_id.as_str()).or_default().push(dep);
+            dep_map
+                .entry(dep.depends_on_id.as_str())
+                .or_default()
+                .push(dep);
         }
     }
 
@@ -446,7 +449,7 @@ mod tests {
             &path,
             &[issue_a, issue_b],
             &[],
-            &[dep.clone()],
+            std::slice::from_ref(&dep),
             &[],
         )
         .unwrap();

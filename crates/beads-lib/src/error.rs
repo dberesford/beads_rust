@@ -166,3 +166,61 @@ impl BeadsError {
 
 /// Result type using `BeadsError`.
 pub type Result<T> = std::result::Result<T, BeadsError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn issue_not_found_display() {
+        let err = BeadsError::IssueNotFound {
+            id: "bd-missing".to_string(),
+        };
+        assert_eq!(err.to_string(), "Issue not found: bd-missing");
+    }
+
+    #[test]
+    fn validation_constructor_preserves_field_and_reason() {
+        let err = BeadsError::validation("title", "too long");
+        assert_eq!(err.to_string(), "Validation failed: title: too long");
+    }
+
+    #[test]
+    fn from_validation_errors_single_collapses_to_validation() {
+        let err = BeadsError::from_validation_errors(vec![ValidationError::new(
+            "priority",
+            "out of range",
+        )]);
+        assert_eq!(err.to_string(), "Validation failed: priority: out of range");
+    }
+
+    #[test]
+    fn from_validation_errors_multiple_wraps_list() {
+        let err = BeadsError::from_validation_errors(vec![
+            ValidationError::new("a", "one"),
+            ValidationError::new("b", "two"),
+        ]);
+        match err {
+            BeadsError::ValidationErrors { errors } => {
+                assert_eq!(errors.len(), 2);
+                assert_eq!(errors[0].field, "a");
+                assert_eq!(errors[1].field, "b");
+            }
+            other => panic!("expected ValidationErrors, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn validation_error_display_impl() {
+        let ve = ValidationError::new("field", "msg");
+        assert_eq!(ve.to_string(), "field: msg");
+        assert_eq!(format!("{ve}"), "field: msg");
+    }
+
+    #[test]
+    fn io_error_converts_via_from() {
+        let io_err = std::io::Error::other("disk full");
+        let err: BeadsError = io_err.into();
+        assert!(err.to_string().starts_with("I/O error:"));
+    }
+}
