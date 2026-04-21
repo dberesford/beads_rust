@@ -22,9 +22,9 @@ clap = { version = "4.5", features = ["derive", "env", "unstable-ext"] }
 clap_complete = { version = "4.5", features = ["unstable-dynamic"] }
 
 # Database
-# Keep libsqlite3-sys aligned with sqlx/goose (0.28.x) to avoid native sqlite link conflicts
-# when embedding beads_rust and goose in the same binary.
-rusqlite = { version = "0.31", features = ["bundled"] }
+# rusqlite ≥0.32 pulls libsqlite3-sys 0.30.x (with bundled). sqlx-sqlite 0.8.x expects the same
+# libsqlite3-sys range—embed beads_rust + goose/sqlx in one binary without sqlite link conflicts.
+rusqlite = { version = "0.32.1", features = ["bundled"] }
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
